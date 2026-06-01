@@ -1,0 +1,41 @@
+name: Feature request
+description: Propose a change or new capability.
+title: "feat: <short description>"
+labels: ["enhancement", "triage"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What problem does this solve? Who is the user?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+    validations:
+      required: false
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Scope
+      options:
+        - Small (a single PR)
+        - Medium (a few PRs, no architecture impact)
+        - Large (likely needs an ADR)
+    validations:
+      required: true
+  - type: checkboxes
+    id: adr-check
+    attributes:
+      label: Architecture impact
+      options:
+        - label: This change would affect a bounded context, public API, or storage layout, so an ADR is likely needed.
+          required: false

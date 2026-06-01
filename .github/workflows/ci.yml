@@ -28,6 +28,11 @@ jobs:
       - name: go work sync
         run: go work sync
 
+      - name: Generate API server stubs
+        run: |
+          (cd apps/api && go run github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen \
+            --config oapi-codegen.yaml openapi.yaml)
+
       - name: Build
         run: |
           set -e
@@ -55,8 +60,6 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: pnpm/action-setup@v4
-        with:
-          version: 9
 
       - uses: actions/setup-node@v4
         with:
