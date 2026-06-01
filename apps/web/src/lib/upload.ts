@@ -72,12 +72,17 @@ export interface UploadOptions {
  * Compute lowercase hex SHA-256 of bytes using the Web Crypto API.
  *
  * Throws if `crypto.subtle` is unavailable (i.e. non-HTTPS context).
+ *
+ * Older Node runtimes (we still target Node 20 in CI) only accept
+ * BufferSource for `digest`'s second arg; an ArrayBuffer instance
+ * isn't always recognized. Wrapping in a Uint8Array view is portable.
  */
 export async function sha256Hex(bytes: ArrayBuffer): Promise<string> {
   if (typeof crypto === "undefined" || !crypto.subtle) {
     throw new Error("Web Crypto unavailable; HTTPS or localhost is required");
   }
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  const view = new Uint8Array(bytes);
+  const digest = await crypto.subtle.digest("SHA-256", view);
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
