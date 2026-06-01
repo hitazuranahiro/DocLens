@@ -1,6 +1,6 @@
 module github.com/tomeku/doclens/apps/api
 
-go 1.23
+go 1.25.0
 
 require (
 	github.com/getkin/kin-openapi v0.135.0

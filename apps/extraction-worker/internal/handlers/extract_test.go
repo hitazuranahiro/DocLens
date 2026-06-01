@@ -9,21 +9,22 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/hibiken/asynq"
 
 	"github.com/tomeku/doclens/apps/extraction-worker/internal/handlers"
-	"github.com/tomeku/doclens/services/extraction/adapters/passthrough"
-	"github.com/tomeku/doclens/services/extraction/domain"
 )
 
 func quietLogger() *slog.Logger {
 	return slog.New(slog.NewJSONHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
 }
 
-func TestExtractHandler_Handle_OkOnValidPayload(t *testing.T) {
-	h := handlers.NewExtractHandler(quietLogger(), passthrough.New())
+func TestExtractHandler_Handle_NilService_AcksOk(t *testing.T) {
+	// Worker boots in dev mode without Postgres / S3. The handler
+	// must not retry forever; it logs and acks.
+	h := handlers.NewExtractHandler(quietLogger(), nil)
 	body, _ := json.Marshal(handlers.ExtractDocumentPayload{
-		DocumentID: "doc-1",
+		DocumentID: uuid.NewString(),
 		OwnerID:    "user_42",
 	})
 	task := asynq.NewTask(handlers.TaskTypeExtractDocument, body)
@@ -33,14 +34,12 @@ func TestExtractHandler_Handle_OkOnValidPayload(t *testing.T) {
 }
 
 func TestExtractHandler_Handle_BadPayloadIsTerminal(t *testing.T) {
-	h := handlers.NewExtractHandler(quietLogger(), passthrough.New())
+	h := handlers.NewExtractHandler(quietLogger(), nil)
 	task := asynq.NewTask(handlers.TaskTypeExtractDocument, []byte("not-json"))
 	err := h.Handle(context.Background(), task)
 	if err == nil {
 		t.Fatal("expected error on bad payload")
 	}
-	// asynq.SkipRetry means the broker won't retry. Confirming the
-	// signal is wrapped so the bad payload doesn't pile up forever.
 	if !errors.Is(err, asynq.SkipRetry) {
 		t.Fatalf("err = %v, want wraps asynq.SkipRetry", err)
 	}
@@ -49,10 +48,21 @@ func TestExtractHandler_Handle_BadPayloadIsTerminal(t *testing.T) {
 	}
 }
 
-// Compile-time guarantee that the handler keeps satisfying the
-// asynq dispatch signature even if we evolve it later.
-var _ asynq.HandlerFunc = (&handlers.ExtractHandler{}).Handle
+func TestExtractHandler_Handle_BadDocumentIDIsTerminal(t *testing.T) {
+	h := handlers.NewExtractHandler(quietLogger(), nil)
+	body, _ := json.Marshal(handlers.ExtractDocumentPayload{
+		DocumentID: "not-a-uuid",
+		OwnerID:    "user_42",
+	})
+	task := asynq.NewTask(handlers.TaskTypeExtractDocument, body)
+	err := h.Handle(context.Background(), task)
+	if err == nil {
+		t.Fatal("expected error on bad documentId")
+	}
+	if !errors.Is(err, asynq.SkipRetry) {
+		t.Fatalf("err = %v, want wraps asynq.SkipRetry", err)
+	}
+}
 
-// Compile-time guarantee that passthrough still matches the port. If
-// someone breaks it the symbol below fails to resolve.
-var _ domain.Extractor = passthrough.New()
+// Compile-time guarantee that the handler still satisfies asynq.HandlerFunc.
+var _ asynq.HandlerFunc = (&handlers.ExtractHandler{}).Handle

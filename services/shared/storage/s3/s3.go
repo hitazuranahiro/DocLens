@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -166,4 +167,40 @@ func capTTL(ttl time.Duration) time.Duration {
 		return storage.MaxPresignTTL
 	}
 	return ttl
+}
+
+
+// Get implements storage.ObjectStore.
+func (a *Adapter) Get(ctx context.Context, bucket, key string) (io.ReadCloser, error) {
+	out, err := a.client.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		var apiErr smithy.APIError
+		if errors.As(err, &apiErr) && (apiErr.ErrorCode() == "NoSuchKey" || apiErr.ErrorCode() == "NotFound") {
+			return nil, storage.ErrNotFound
+		}
+		return nil, fmt.Errorf("s3: get: %w", err)
+	}
+	return out.Body, nil
+}
+
+// Put implements storage.ObjectStore.
+func (a *Adapter) Put(ctx context.Context, bucket, key string, body io.Reader, opts storage.PutOptions) error {
+	in := &s3.PutObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
+		Body:   body,
+	}
+	if opts.ContentType != "" {
+		in.ContentType = aws.String(opts.ContentType)
+	}
+	if opts.ContentLength > 0 {
+		in.ContentLength = aws.Int64(opts.ContentLength)
+	}
+	if _, err := a.client.PutObject(ctx, in); err != nil {
+		return fmt.Errorf("s3: put: %w", err)
+	}
+	return nil
 }

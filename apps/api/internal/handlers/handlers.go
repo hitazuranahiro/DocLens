@@ -161,6 +161,29 @@ func (s *Server) FinalizeDocument(w http.ResponseWriter, r *http.Request, id ope
 	writeJSON(w, http.StatusAccepted, toGenDocument(res.Document))
 }
 
+// RetryDocument implements POST /v1/documents/{id}/retry. Re-enqueues
+// extraction for a failed document.
+func (s *Server) RetryDocument(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
+	if s.uploads == nil {
+		transport.WriteProblem(w, http.StatusServiceUnavailable,
+			"Upload service unavailable", "the API is running without storage")
+		return
+	}
+	authID, ok := transport.IdentityFrom(r.Context())
+	if !ok {
+		transport.WriteProblem(w, http.StatusUnauthorized,
+			"Unauthorized", "no identity in context")
+		return
+	}
+
+	doc, err := s.uploads.RetryDocument(r.Context(), authID.UserID, id)
+	if err != nil {
+		writeRetryProblem(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, toGenDocument(doc))
+}
+
 // --- helpers --------------------------------------------------------------
 
 func writeUploadProblem(w http.ResponseWriter, err error) {
@@ -185,6 +208,22 @@ func writeUploadProblem(w http.ResponseWriter, err error) {
 		transport.WriteProblem(w, http.StatusConflict,
 			"Object not present",
 			"complete the PUT before calling finalize, or restart the upload")
+	default:
+		transport.WriteProblem(w, http.StatusInternalServerError,
+			"Internal server error", "")
+	}
+}
+
+// writeRetryProblem maps retry-specific errors to RFC 7807 documents.
+func writeRetryProblem(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, libdomain.ErrDocumentNotFound):
+		transport.WriteProblem(w, http.StatusNotFound,
+			"Not found", "no such document")
+	case errors.Is(err, libdomain.ErrInvalidTransition):
+		transport.WriteProblem(w, http.StatusConflict,
+			"Not retryable",
+			"document is not in a failed state")
 	default:
 		transport.WriteProblem(w, http.StatusInternalServerError,
 			"Internal server error", "")
