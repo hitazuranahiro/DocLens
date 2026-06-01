@@ -1,46 +1,77 @@
-// Library landing page. Verifies the auth bridge end-to-end by calling
-// `/v1/me` with the current Clerk session token from a Server Component
-// and rendering the resolved identity. Subsequent milestones replace
-// the body of this page with the real document list.
+// Library landing page.
 //
-// This is also where the requirement "Server Component that calls
-// /v1/me server-side and renders the user" lands (Task 2.4).
+// Server Component: fetches /v1/documents with the caller's Clerk
+// token, renders the list, and links each row to the reader page.
+// Cursor-based "Load more" is implemented as a plain link query so
+// browsers without JS still paginate.
+
+import Link from "next/link";
 
 import { apiFromServer } from "@/lib/api";
+import { DocumentList } from "@/components/documents/DocumentList";
 
 export const dynamic = "force-dynamic";
 
-export default async function LibraryPage() {
+export default async function LibraryPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ cursor?: string }>;
+}) {
+  const { cursor } = await searchParams;
   const client = await apiFromServer();
-  const { data, error, response } = await client.GET("/v1/me");
+  const { data, error, response } = await client.GET("/v1/documents", {
+    params: { query: cursor ? { cursor } : {} },
+  });
 
   if (error || !data) {
-    return (
-      <div className="space-y-4">
-        <h1 className="text-2xl font-semibold tracking-tight">Library</h1>
-        <p className="text-sm text-red-600 dark:text-red-400">
-          Failed to load identity ({response?.status ?? "no response"}).
-        </p>
-        <pre className="rounded-md bg-zinc-100 p-4 text-xs text-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
-          {error ? JSON.stringify(error, null, 2) : "Unknown error"}
-        </pre>
-      </div>
-    );
+    return <ErrorState status={response?.status} />;
   }
+
+  const items = data.items ?? [];
+  const nextHref = data.nextCursor
+    ? `/library?cursor=${encodeURIComponent(data.nextCursor)}`
+    : null;
 
   return (
     <div className="space-y-8">
-      <header className="space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight">Library</h1>
-        <p className="text-sm text-zinc-600 dark:text-zinc-300">
-          Signed in as <span className="font-medium">{data.displayName ?? data.email}</span>{" "}
-          <span className="text-zinc-400">({data.userId})</span>
-        </p>
+      <header className="flex items-end justify-between gap-4">
+        <div className="space-y-1">
+          <h1 className="text-2xl font-semibold tracking-tight">Library</h1>
+          <p className="text-sm text-zinc-600 dark:text-zinc-300">
+            {items.length === 0
+              ? "No documents yet."
+              : data.nextCursor
+                ? "Showing the most recent 20."
+                : `${items.length} document${items.length === 1 ? "" : "s"}.`}
+          </p>
+        </div>
+        <Link
+          href="/upload"
+          className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+        >
+          Upload
+        </Link>
       </header>
 
-      <div className="rounded-lg border border-dashed border-zinc-300 p-12 text-center dark:border-zinc-700">
-        <p className="text-sm text-zinc-600 dark:text-zinc-300">
-          No documents yet. Upload pipeline ships in M3.
+      <DocumentList
+        items={items}
+        thumbnailHref={(doc) =>
+          doc.status === "ready" ? `/api/documents/${doc.id}/thumbnail` : null
+        }
+        nextHref={nextHref}
+      />
+    </div>
+  );
+}
+
+function ErrorState({ status }: { status: number | undefined }) {
+  return (
+    <div className="space-y-4">
+      <h1 className="text-2xl font-semibold tracking-tight">Library</h1>
+      <div className="rounded-lg border border-red-200 bg-red-50 p-6 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
+        <p className="font-medium">Couldn&apos;t load your library</p>
+        <p className="mt-1">
+          The API returned {status ?? "no response"}. Try refreshing in a moment.
         </p>
       </div>
     </div>
