@@ -1,0 +1,11 @@
+# Default owner for everything not matched by a more specific rule.
+*                       @tomeku/maintainers
+
+# Architecture-significant areas require ADR review.
+/docs/adr/              @tomeku/maintainers @tomeku/architects
+/PROJECT.md             @tomeku/maintainers @tomeku/architects
+/docs/specs/            @tomeku/maintainers @tomeku/architects
+
+# Infra changes need an ops eye.
+/infra/                 @tomeku/maintainers @tomeku/ops
+/.github/               @tomeku/maintainers @tomeku/ops

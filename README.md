@@ -6,7 +6,7 @@ DocLens is an open-source document intelligence platform that transforms PDFs, r
 
 Instead of simply extracting text, DocLens helps users understand, explore, and interact with information through AI-powered summaries, knowledge graphs, document search, and intelligent analysis.
 
-![DocLens Banner](https://chatgpt.com/backend-api/estuary/content?id=file_00000000906c7209b618bc06ae0207b9&ts=494520&p=fsns&cid=1&sig=c425303d6a5d57e25bf90dd06f647cfd81f8c82b7997579bcb25c1107abeb6ed&v=0)
+![DocLens Banner](/Brand-Assets/banner.png)
 
 ---
 
@@ -18,12 +18,12 @@ DocLens focuses on helping humans understand information.
 
 Upload a document and instantly:
 
-* 📄 Extract text, tables, images, and metadata
-* 🧠 Generate AI-powered summaries
-* 🔍 Search documents intelligently
-* 🌐 Visualize relationships using knowledge graphs
-* 🛡️ Verify extraction confidence
-* ⚡ Prepare content for AI and RAG workflows
+- 📄 Extract text, tables, images, and metadata
+- 🧠 Generate AI-powered summaries
+- 🔍 Search documents intelligently
+- 🌐 Visualize relationships using knowledge graphs
+- 🛡️ Verify extraction confidence
+- ⚡ Prepare content for AI and RAG workflows
 
 ---
 
@@ -33,12 +33,12 @@ Upload a document and instantly:
 
 Extract structured content from:
 
-* PDFs
-* Research Papers
-* Reports
-* Manuals
-* Documentation
-* Office Documents
+- PDFs
+- Research Papers
+- Reports
+- Manuals
+- Documentation
+- Office Documents
 
 ---
 
@@ -59,10 +59,10 @@ Actionable Insights
 
 Visualize connections between:
 
-* Topics
-* Concepts
-* Entities
-* References
+- Topics
+- Concepts
+- Entities
+- References
 
 ---
 
@@ -112,10 +112,10 @@ Analyze reports, contracts, and manuals faster.
 
 We believe documents should be:
 
-* Searchable
-* Understandable
-* Verifiable
-* AI-ready
+- Searchable
+- Understandable
+- Verifiable
+- AI-ready
 
 DocLens aims to become the open platform for document intelligence.
 
@@ -143,32 +143,32 @@ Human Interface Layer
 
 ### v0.1
 
-* Document Upload
-* Text Extraction
-* Markdown Output
-* Search
+- Document Upload
+- Text Extraction
+- Markdown Output
+- Search
 
 ### v0.2
 
-* AI Summaries
-* Metadata Extraction
-* Table Detection
+- AI Summaries
+- Metadata Extraction
+- Table Detection
 
 ### v0.3
 
-* Knowledge Graphs
-* Confidence Scoring
-* Verification Layer
+- Knowledge Graphs
+- Confidence Scoring
+- Verification Layer
 
 ### v0.4
 
-* RAG Export
-* Embeddings
-* AI Agents
+- RAG Export
+- Embeddings
+- AI Agents
 
 ### v1.0
 
-* Full Document Intelligence Platform
+- Full Document Intelligence Platform
 
 ---
 
@@ -176,29 +176,29 @@ Human Interface Layer
 
 ### Frontend
 
-* Next.js
-* React
-* TypeScript
-* Tailwind CSS
-* shadcn/ui
+- Next.js
+- React
+- TypeScript
+- Tailwind CSS
+- shadcn/ui
 
 ### Backend
 
-* Go
-* PostgreSQL
-* Redis
+- Go
+- PostgreSQL
+- Redis
 
 ### AI
 
-* OpenAI
-* Anthropic
-* AWS Bedrock
+- OpenAI
+- Anthropic
+- AWS Bedrock
 
 ### Infrastructure
 
-* Docker
-* Kubernetes
-* Cloudflare
+- Docker
+- Kubernetes
+- Cloudflare
 
 ---
 

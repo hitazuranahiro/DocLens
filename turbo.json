@@ -1,0 +1,25 @@
+{
+  "globalDependencies": ["**/.env.*local", "tsconfig.base.json", ".prettierrc", "eslint.config.js"],
+  "globalEnv": ["NODE_ENV", "PUBLIC_API_URL", "INTERNAL_API_URL"],
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": [".next/**", "!.next/cache/**", "dist/**"]
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true
+    },
+    "lint": {
+      "outputs": []
+    },
+    "typecheck": {
+      "dependsOn": ["^build"],
+      "outputs": []
+    },
+    "test": {
+      "dependsOn": ["^build"],
+      "outputs": ["coverage/**"]
+    }
+  }
+}

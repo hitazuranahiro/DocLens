@@ -1,0 +1,62 @@
+# --- OS ---
+.DS_Store
+Thumbs.db
+
+.kiro/
+
+# --- Editors ---
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.shared.json
+.idea/
+*.swp
+
+# --- Node / pnpm / Turbo ---
+node_modules/
+.pnpm-store/
+.next/
+.turbo/
+dist/
+build/
+out/
+coverage/
+*.tsbuildinfo
+.eslintcache
+
+# --- Go ---
+bin/
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+vendor/
+
+# --- Python (extraction worker dev) ---
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+
+# --- Docker / infra runtime data ---
+infra/docker/data/
+infra/docker/.env
+
+# --- Local env ---
+.env
+.env.local
+.env.*.local
+
+# --- Logs / tmp ---
+*.log
+logs/
+tmp/
+
+# --- Generated artifacts ---
+apps/api/internal/generated/
+packages/api-client/src/generated/
+
+# --- Test outputs ---
+playwright-report/
+test-results/

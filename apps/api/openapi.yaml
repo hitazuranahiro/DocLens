@@ -1,0 +1,115 @@
+openapi: 3.1.0
+info:
+  title: DocLens API
+  version: 0.1.0
+  description: |
+    DocLens HTTP API. v0.1 ships health and identity endpoints; subsequent
+    milestones add uploads, documents, and search.
+
+    Errors follow RFC 7807 (`application/problem+json`).
+  contact:
+    name: DocLens
+    url: https://doclens.org
+  license:
+    name: MIT
+    url: https://opensource.org/license/mit
+servers:
+  - url: http://localhost:8080
+    description: Local development
+  - url: https://api.doclens.org
+    description: Production
+tags:
+  - name: meta
+    description: Health, version, identity.
+paths:
+  /v1/health:
+    get:
+      tags: [meta]
+      operationId: getHealth
+      summary: Liveness probe.
+      security: []
+      responses:
+        "200":
+          description: Service is up.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+  /v1/me:
+    get:
+      tags: [meta]
+      operationId: getMe
+      summary: Return the authenticated identity.
+      responses:
+        "200":
+          description: Authenticated identity.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Identity"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    Health:
+      type: object
+      required: [status, version, uptimeSeconds]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+        version:
+          type: string
+          example: 0.1.0
+        commit:
+          type: string
+          example: abc1234
+        uptimeSeconds:
+          type: integer
+          format: int64
+          minimum: 0
+    Identity:
+      type: object
+      required: [userId, email]
+      properties:
+        userId:
+          type: string
+          example: user_2abcDEF
+        email:
+          type: string
+          format: email
+        displayName:
+          type: string
+    Problem:
+      description: RFC 7807 problem document.
+      type: object
+      required: [type, title, status]
+      properties:
+        type:
+          type: string
+          format: uri
+          example: about:blank
+        title:
+          type: string
+        status:
+          type: integer
+          format: int32
+        detail:
+          type: string
+        instance:
+          type: string
+          format: uri
+  responses:
+    Unauthorized:
+      description: Missing or invalid bearer token.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+security:
+  - bearerAuth: []
