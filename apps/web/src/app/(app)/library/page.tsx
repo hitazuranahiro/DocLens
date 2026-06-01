@@ -1,7 +1,7 @@
 import Link from "next/link";
 
 import { apiFromServer } from "@/lib/api";
-import { DocumentList } from "@/components/documents/DocumentList";
+import { DocumentListLive } from "@/components/documents/DocumentListLive";
 
 export const dynamic = "force-dynamic";
 
@@ -46,11 +46,9 @@ export default async function LibraryPage({
         </Link>
       </header>
 
-      <DocumentList
-        items={items}
-        thumbnailHref={(doc) =>
-          doc.status === "ready" ? `/api/documents/${doc.id}/thumbnail` : null
-        }
+      <DocumentListLive
+        initialItems={items}
+        thumbnailHrefFor={(id) => `/api/documents/${id}/thumbnail`}
         nextHref={nextHref}
       />
     </div>

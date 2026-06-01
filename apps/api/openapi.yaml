@@ -283,6 +283,33 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /v1/documents/stream:
+    get:
+      tags: [library]
+      operationId: streamDocuments
+      summary: Subscribe to live document status updates (SSE).
+      description: |
+        Returns a `text/event-stream` of document status changes for
+        the authenticated user. Each `data:` line is a JSON
+        `DocumentStatusEvent`. The server emits a `:keepalive`
+        comment every 25 seconds to keep proxies from closing the
+        connection.
+
+        v0.1 fans out at-most-once: if the server is restarted
+        mid-extraction, the client must re-fetch the document state
+        via `GET /v1/documents/{id}` on reconnection. EventSource's
+        built-in retry handles the reconnection transport; the
+        application reconciles the state.
+      responses:
+        "200":
+          description: Open SSE stream.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
   /v1/documents/{id}/raw:
     get:
       tags: [library]
@@ -507,6 +534,41 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Artifact"
+
+    DocumentStatusEvent:
+      description: |
+        One live status update emitted on `/v1/documents/stream`.
+        Field semantics match `Document`; nullable values are absent
+        until the extraction worker computes them.
+      type: object
+      required: [documentId, status, updatedAt]
+      properties:
+        event:
+          type: string
+          enum: [INSERT, UPDATE]
+        documentId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [queued, extracting, ready, failed, deleted]
+        pageCount:
+          type: integer
+          nullable: true
+        wordCount:
+          type: integer
+          nullable: true
+        confidence:
+          type: integer
+          nullable: true
+          minimum: 0
+          maximum: 100
+        lastError:
+          type: string
+          nullable: true
+        updatedAt:
+          type: string
+          format: date-time
 
     PresignedURL:
       type: object
