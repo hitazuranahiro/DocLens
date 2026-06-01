@@ -20,6 +20,8 @@ import (
 	ingdomain "github.com/tomeku/doclens/services/ingestion/domain"
 	libdomain "github.com/tomeku/doclens/services/library/domain"
 	"github.com/tomeku/doclens/services/shared/auth/local"
+	extractiondomain "github.com/tomeku/doclens/services/extraction/domain"
+	jobsinmem "github.com/tomeku/doclens/services/shared/jobs/inmem"
 	"github.com/tomeku/doclens/services/shared/storage"
 )
 
@@ -123,19 +125,21 @@ const (
 	otherUser  = "Bearer dev:user_99:eve@example.com"
 )
 
-func newUploadServer(t *testing.T, store *fakeStore) (*httptest.Server, *uploadRepo, *libRepo) {
+func newUploadServer(t *testing.T, store *fakeStore) (*httptest.Server, *uploadRepo, *libRepo, *jobsinmem.Bus) {
 	t.Helper()
 	uploads := newUploadRepo()
 	library := newLibRepo()
+	bus := jobsinmem.NewBus()
 	svc := ingapp.NewServiceMust(uploads, library, store, "raw", ingapp.Options{
 		PresignTTL:  3 * time.Minute,
 		EnabledMime: []string{"application/pdf"},
+		Bus:         bus,
 	})
 	deps := server.Deps{
 		Auth:     local.New(),
 		Handlers: handlers.Deps{Uploads: svc},
 	}
-	return httptest.NewServer(server.New(deps)), uploads, library
+	return httptest.NewServer(server.New(deps)), uploads, library, bus
 }
 
 func postJSON(t *testing.T, ts *httptest.Server, path, auth string, body any) *http.Response {
@@ -165,7 +169,7 @@ const validSHA = "00000000000000000000000000000000000000000000000000000000000000
 
 func TestCreateUpload_RequiresAuth(t *testing.T) {
 	t.Parallel()
-	ts, _, _ := newUploadServer(t, &fakeStore{})
+	ts, _, _, _ := newUploadServer(t, &fakeStore{})
 	defer ts.Close()
 	resp := postJSON(t, ts, "/v1/uploads", "", map[string]any{
 		"filename": "x.pdf", "mimeType": "application/pdf", "size": 10, "sha256": validSHA,
@@ -178,7 +182,7 @@ func TestCreateUpload_RequiresAuth(t *testing.T) {
 
 func TestCreateUpload_Created(t *testing.T) {
 	t.Parallel()
-	ts, _, _ := newUploadServer(t, &fakeStore{})
+	ts, _, _, _ := newUploadServer(t, &fakeStore{})
 	defer ts.Close()
 	resp := postJSON(t, ts, "/v1/uploads", authHeader, map[string]any{
 		"filename": "report.pdf", "mimeType": "application/pdf", "size": 1024, "sha256": validSHA,
@@ -205,7 +209,7 @@ func TestCreateUpload_Created(t *testing.T) {
 
 func TestCreateUpload_DuplicateReturns200(t *testing.T) {
 	t.Parallel()
-	ts, _, library := newUploadServer(t, &fakeStore{})
+	ts, _, library, _ := newUploadServer(t, &fakeStore{})
 	defer ts.Close()
 
 	existing := &libdomain.Document{
@@ -238,7 +242,7 @@ func TestCreateUpload_DuplicateReturns200(t *testing.T) {
 
 func TestCreateUpload_415OnDisallowedMime(t *testing.T) {
 	t.Parallel()
-	ts, _, _ := newUploadServer(t, &fakeStore{})
+	ts, _, _, _ := newUploadServer(t, &fakeStore{})
 	defer ts.Close()
 	resp := postJSON(t, ts, "/v1/uploads", authHeader, map[string]any{
 		"filename": "doc.docx", "mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -255,7 +259,7 @@ func TestCreateUpload_415OnDisallowedMime(t *testing.T) {
 
 func TestCreateUpload_413OnOversize(t *testing.T) {
 	t.Parallel()
-	ts, _, _ := newUploadServer(t, &fakeStore{})
+	ts, _, _, _ := newUploadServer(t, &fakeStore{})
 	defer ts.Close()
 	resp := postJSON(t, ts, "/v1/uploads", authHeader, map[string]any{
 		"filename": "big.pdf", "mimeType": "application/pdf",
@@ -269,7 +273,7 @@ func TestCreateUpload_413OnOversize(t *testing.T) {
 
 func TestCreateUpload_400OnBadSHA(t *testing.T) {
 	t.Parallel()
-	ts, _, _ := newUploadServer(t, &fakeStore{})
+	ts, _, _, _ := newUploadServer(t, &fakeStore{})
 	defer ts.Close()
 	resp := postJSON(t, ts, "/v1/uploads", authHeader, map[string]any{
 		"filename": "x.pdf", "mimeType": "application/pdf",
@@ -284,7 +288,7 @@ func TestCreateUpload_400OnBadSHA(t *testing.T) {
 func TestFinalize_HappyPath(t *testing.T) {
 	t.Parallel()
 	store := &fakeStore{headInfo: storage.ObjectInfo{ByteSize: 1024}}
-	ts, _, _ := newUploadServer(t, store)
+	ts, _, _, _ := newUploadServer(t, store)
 	defer ts.Close()
 
 	// Step 1: create upload to get an uploadId.
@@ -329,7 +333,7 @@ func TestFinalize_OwnerIsolationReturns404(t *testing.T) {
 	t.Parallel()
 	// Property 2: another user gets 404, not 403, per Req 7.9.
 	store := &fakeStore{headInfo: storage.ObjectInfo{ByteSize: 1024}}
-	ts, _, _ := newUploadServer(t, store)
+	ts, _, _, _ := newUploadServer(t, store)
 	defer ts.Close()
 
 	createResp := postJSON(t, ts, "/v1/uploads", authHeader, map[string]any{
@@ -355,7 +359,7 @@ func TestFinalize_OwnerIsolationReturns404(t *testing.T) {
 func TestFinalize_ConflictOnMissingObject(t *testing.T) {
 	t.Parallel()
 	store := &fakeStore{headErr: storage.ErrNotFound}
-	ts, _, _ := newUploadServer(t, store)
+	ts, _, _, _ := newUploadServer(t, store)
 	defer ts.Close()
 
 	createResp := postJSON(t, ts, "/v1/uploads", authHeader, map[string]any{
@@ -391,5 +395,57 @@ func TestUploadServiceUnavailableWhenStorageDown(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want 503", resp.StatusCode)
+	}
+}
+
+
+func TestFinalize_EnqueuesExtractionJob(t *testing.T) {
+	t.Parallel()
+	store := &fakeStore{headInfo: storage.ObjectInfo{ByteSize: 1024}}
+	ts, _, _, bus := newUploadServer(t, store)
+	defer ts.Close()
+
+	createResp := postJSON(t, ts, "/v1/uploads", authHeader, map[string]any{
+		"filename": "x.pdf", "mimeType": "application/pdf", "size": 1024, "sha256": validSHA,
+	})
+	var created struct {
+		UploadID   string `json:"uploadId"`
+		DocumentID string `json:"documentId"`
+	}
+	if err := json.NewDecoder(createResp.Body).Decode(&created); err != nil {
+		t.Fatalf("decode create: %v", err)
+	}
+	createResp.Body.Close()
+
+	finReq, _ := http.NewRequest(http.MethodPost,
+		ts.URL+"/v1/documents/"+created.UploadID+"/finalize", nil)
+	finReq.Header.Set("Authorization", authHeader)
+	finResp, err := http.DefaultClient.Do(finReq)
+	if err != nil {
+		t.Fatalf("finalize: %v", err)
+	}
+	finResp.Body.Close()
+	if finResp.StatusCode != http.StatusAccepted {
+		t.Fatalf("status = %d, want 202", finResp.StatusCode)
+	}
+
+	tasks := bus.Tasks()
+	if len(tasks) != 1 {
+		t.Fatalf("enqueued %d tasks, want exactly 1", len(tasks))
+	}
+	if tasks[0].Type != extractiondomain.TaskTypeExtractDocument {
+		t.Fatalf("task type = %q, want %q",
+			tasks[0].Type, extractiondomain.TaskTypeExtractDocument)
+	}
+	payload, ok := tasks[0].Payload.(extractiondomain.ExtractDocumentPayload)
+	if !ok {
+		t.Fatalf("payload type = %T, want ExtractDocumentPayload", tasks[0].Payload)
+	}
+	if payload.DocumentID != created.DocumentID {
+		t.Fatalf("payload.DocumentID = %q, want %q",
+			payload.DocumentID, created.DocumentID)
+	}
+	if payload.OwnerID != "user_42" {
+		t.Fatalf("payload.OwnerID = %q, want user_42", payload.OwnerID)
 	}
 }

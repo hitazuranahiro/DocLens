@@ -31,6 +31,9 @@ type Config struct {
 	// Postgres
 	DatabaseURL string
 
+	// Redis (asynq broker, future cache)
+	RedisURL string
+
 	// Object storage
 	S3Endpoint        string
 	S3Region          string
@@ -60,6 +63,8 @@ func Load() (Config, error) {
 
 		DatabaseURL: getOr("DATABASE_URL",
 			"postgres://doclens:doclens@localhost:5432/doclens?sslmode=disable"),
+
+		RedisURL: getOr("REDIS_URL", "redis://localhost:6379/0"),
 
 		S3Endpoint:        getOr("S3_ENDPOINT", "http://localhost:9000"),
 		S3Region:          getOr("S3_REGION", "us-east-1"),
