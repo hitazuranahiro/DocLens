@@ -21,6 +21,7 @@
     "openapi-fetch": "^0.13.0"
   },
   "devDependencies": {
+    "eslint": "^9.13.0",
     "openapi-typescript": "^7.4.0",
     "typescript": "^5.5.4"
   }
