@@ -44,6 +44,10 @@ services:
     environment:
       MINIO_ROOT_USER: doclens
       MINIO_ROOT_PASSWORD: doclens-dev-secret
+      # Dev-only: allow browser PUTs from any origin so the web app's
+      # presigned uploads work without per-bucket CORS. NEVER use this
+      # value in production — set the production web origin only.
+      MINIO_API_CORS_ALLOW_ORIGIN: "*"
     command: ["server", "/data", "--console-address", ":9001"]
     ports:
       - "9000:9000" # S3 API
