@@ -13,7 +13,7 @@ import (
 
 func newTestServer(t *testing.T) *httptest.Server {
 	t.Helper()
-	h := server.New(local.New())
+	h := server.New(server.Deps{Auth: local.New()})
 	return httptest.NewServer(h)
 }
 

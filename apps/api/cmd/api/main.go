@@ -11,11 +11,20 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/tomeku/doclens/apps/api/internal/config"
+	"github.com/tomeku/doclens/apps/api/internal/handlers"
 	"github.com/tomeku/doclens/apps/api/internal/server"
+	"github.com/tomeku/doclens/apps/api/internal/sweeper"
+	ingapp "github.com/tomeku/doclens/services/ingestion/app"
+	ingpg "github.com/tomeku/doclens/services/ingestion/adapters/postgres"
+	libpg "github.com/tomeku/doclens/services/library/adapters/postgres"
 	"github.com/tomeku/doclens/services/shared/auth"
 	"github.com/tomeku/doclens/services/shared/auth/clerk"
 	"github.com/tomeku/doclens/services/shared/auth/local"
+	"github.com/tomeku/doclens/services/shared/storage"
+	storages3 "github.com/tomeku/doclens/services/shared/storage/s3"
 )
 
 func main() {
@@ -30,12 +39,23 @@ func main() {
 		os.Exit(1)
 	}
 
-	authn := buildAuthenticator(cfg, logger)
-	handler := server.New(authn)
+	rootCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	deps, cleanup, err := buildDeps(rootCtx, cfg, logger)
+	if err != nil {
+		logger.Error("dependency wiring failed", "err", err)
+		os.Exit(1)
+	}
+	defer cleanup()
+
+	if deps.Handlers.Uploads != nil {
+		go sweeper.Run(rootCtx, deps.Handlers.Uploads, cfg.SweepInterval, logger)
+	}
 
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           handler,
+		Handler:           server.New(deps),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
@@ -50,9 +70,7 @@ func main() {
 		}
 	}()
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-	<-ctx.Done()
+	<-rootCtx.Done()
 
 	logger.Info("shutting down")
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -61,6 +79,73 @@ func main() {
 		logger.Error("graceful shutdown failed", "err", err)
 		os.Exit(1)
 	}
+}
+
+// buildDeps wires every collaborator. It returns a cleanup that closes
+// any pools/clients we opened.
+//
+// If Postgres or S3 is unavailable at startup the API still serves
+// /v1/health and /v1/me; upload routes return 503 from the handler.
+// This makes the bootstrap experience friendlier (`make dev` doesn't
+// race the compose stack).
+func buildDeps(ctx context.Context, cfg config.Config, logger *slog.Logger) (server.Deps, func(), error) {
+	cleanup := func() {}
+
+	authn := buildAuthenticator(cfg, logger)
+
+	// Object storage. We don't fail startup if this fails; the upload
+	// routes will report 503 until the dependency comes up.
+	var store storage.ObjectStore
+	if s3a, err := storages3.New(ctx, storages3.Config{
+		Endpoint:        cfg.S3Endpoint,
+		Region:          cfg.S3Region,
+		AccessKeyID:     cfg.S3AccessKeyID,
+		SecretAccessKey: cfg.S3SecretAccessKey,
+		UsePathStyle:    cfg.S3UsePathStyle,
+	}); err != nil {
+		logger.Warn("s3 adapter unavailable", "err", err)
+	} else {
+		store = s3a
+	}
+
+	// Postgres. Same forgiving startup behavior — we want the API to
+	// boot in offline dev too.
+	var pool *pgxpool.Pool
+	pool, err := pgxpool.New(ctx, cfg.DatabaseURL)
+	if err != nil {
+		logger.Warn("postgres unavailable", "err", err)
+		pool = nil
+	} else {
+		pingCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		if err := pool.Ping(pingCtx); err != nil {
+			logger.Warn("postgres ping failed", "err", err)
+			pool.Close()
+			pool = nil
+		}
+		cancel()
+	}
+	if pool != nil {
+		cleanup = func() { pool.Close() }
+	}
+
+	deps := server.Deps{Auth: authn}
+	if pool != nil && store != nil {
+		uploads := ingapp.NewServiceMust(
+			ingpg.New(pool),
+			libpg.New(pool),
+			store,
+			cfg.S3BucketRaw,
+			ingapp.Options{
+				PresignTTL:  cfg.UploadPresignTTL,
+				EnabledMime: cfg.EnabledMimeTypes,
+			},
+		)
+		deps.Handlers = handlers.Deps{Uploads: uploads}
+	} else {
+		logger.Warn("upload routes disabled — postgres or s3 unavailable")
+	}
+
+	return deps, cleanup, nil
 }
 
 func buildAuthenticator(cfg config.Config, logger *slog.Logger) auth.Authenticator {

@@ -3,8 +3,8 @@ info:
   title: DocLens API
   version: 0.1.0
   description: |
-    DocLens HTTP API. v0.1 ships health and identity endpoints; subsequent
-    milestones add uploads, documents, and search.
+    DocLens HTTP API. v0.1 ships the upload, document, and identity
+    surfaces. Subsequent milestones add streaming, search, and delete.
 
     Errors follow RFC 7807 (`application/problem+json`).
   contact:
@@ -21,6 +21,8 @@ servers:
 tags:
   - name: meta
     description: Health, version, identity.
+  - name: uploads
+    description: Two-phase document upload.
 paths:
   /v1/health:
     get:
@@ -35,6 +37,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Health"
+
   /v1/me:
     get:
       tags: [meta]
@@ -49,6 +52,90 @@ paths:
                 $ref: "#/components/schemas/Identity"
         "401":
           $ref: "#/components/responses/Unauthorized"
+
+  /v1/uploads:
+    post:
+      tags: [uploads]
+      operationId: createUpload
+      summary: Begin a document upload.
+      description: |
+        First step of the two-phase upload flow.
+
+        - Validates `mimeType` against `EXTRACTION_ENABLED_FORMATS` (defaults
+          to `application/pdf` only).
+        - Validates `size` against the 100 MB ceiling.
+        - Dedupes by `(ownerId, sha256)`. If a `ready` document with the same
+          hash already exists for the user, returns `200` with the existing
+          `documentId` and `null` for `putUrl` (no upload needed).
+        - Otherwise, creates a pending `ingestion.uploads` row, issues a
+          presigned PUT URL valid for 5 minutes, and returns it.
+
+        After the client uploads the bytes, it calls `POST /v1/documents/{id}/finalize`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UploadRequest"
+      responses:
+        "200":
+          description: Duplicate. The document already exists; no upload needed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadResponse"
+        "201":
+          description: Upload created. Use `putUrl` to PUT the bytes.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+
+  /v1/documents/{id}/finalize:
+    post:
+      tags: [uploads]
+      operationId: finalizeDocument
+      summary: Finalize an upload after the bytes have been PUT.
+      description: |
+        Verifies the object exists in object storage (HEAD), inserts the
+        canonical `library.documents` row with status `queued`, and enqueues
+        the extraction job. Idempotent: calling twice returns the same
+        document and does not enqueue twice.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "202":
+          description: Accepted. Extraction has been queued.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Document"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: |
+            Object not present in storage. The client must complete the PUT
+            before calling finalize, or the upload window has expired.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+
 components:
   securitySchemes:
     bearerAuth:
@@ -73,6 +160,7 @@ components:
           type: integer
           format: int64
           minimum: 0
+
     Identity:
       type: object
       required: [userId, email]
@@ -85,6 +173,123 @@ components:
           format: email
         displayName:
           type: string
+
+    UploadRequest:
+      type: object
+      required: [filename, mimeType, size, sha256]
+      properties:
+        filename:
+          type: string
+          minLength: 1
+          maxLength: 512
+          example: report.pdf
+        mimeType:
+          type: string
+          minLength: 1
+          maxLength: 128
+          example: application/pdf
+        size:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 104857600
+          description: Size in bytes. Maximum 100 MiB.
+        sha256:
+          type: string
+          pattern: "^[a-f0-9]{64}$"
+          description: Lowercase hex SHA-256 of the file bytes.
+        title:
+          type: string
+          maxLength: 512
+          description: |
+            Human-readable title. Defaults to the filename without extension.
+
+    UploadResponse:
+      type: object
+      required: [documentId, status]
+      properties:
+        documentId:
+          type: string
+          format: uuid
+        uploadId:
+          type: string
+          format: uuid
+          description: Present only when a new upload was created (201).
+        putUrl:
+          type: string
+          format: uri
+          description: |
+            Presigned PUT URL valid for 5 minutes. `null` when the document
+            already exists (duplicate, 200).
+          nullable: true
+        expiresAt:
+          type: string
+          format: date-time
+          description: |
+            Expiry of `putUrl`. `null` for the duplicate response.
+          nullable: true
+        status:
+          type: string
+          enum: [pending, queued, extracting, ready, failed]
+          description: |
+            `pending` for newly created uploads waiting on bytes; otherwise
+            the current document status for duplicates.
+
+    Document:
+      type: object
+      required:
+        [
+          id,
+          ownerId,
+          title,
+          sourceFilename,
+          sha256,
+          byteSize,
+          mimeType,
+          status,
+          createdAt,
+          updatedAt,
+        ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        ownerId:
+          type: string
+        title:
+          type: string
+        sourceFilename:
+          type: string
+        sha256:
+          type: string
+        byteSize:
+          type: integer
+          format: int64
+        mimeType:
+          type: string
+        status:
+          type: string
+          enum: [queued, extracting, ready, failed, deleted]
+        pageCount:
+          type: integer
+          nullable: true
+        wordCount:
+          type: integer
+          nullable: true
+        confidence:
+          type: number
+          format: float
+          nullable: true
+        lastError:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
     Problem:
       description: RFC 7807 problem document.
       type: object
@@ -105,11 +310,37 @@ components:
           type: string
           format: uri
   responses:
+    BadRequest:
+      description: Malformed request.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
     Unauthorized:
       description: Missing or invalid bearer token.
       content:
         application/problem+json:
           schema:
             $ref: "#/components/schemas/Problem"
+    NotFound:
+      description: Resource not found, or not visible to the caller.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    PayloadTooLarge:
+      description: Upload exceeds the 100 MB ceiling.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    UnsupportedMediaType:
+      description: |
+        The provided `mimeType` is not on `EXTRACTION_ENABLED_FORMATS`.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+
 security:
   - bearerAuth: []
