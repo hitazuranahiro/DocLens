@@ -18,7 +18,7 @@
     "test": "echo 'no tests yet' && exit 0"
   },
   "dependencies": {
-    "openapi-fetch": "^0.13.0"
+    "openapi-fetch": "^0.17.0"
   },
   "devDependencies": {
     "eslint": "^9.13.0",
