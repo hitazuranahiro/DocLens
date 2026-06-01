@@ -6,5 +6,6 @@ use (
 	./services/extraction
 	./services/ingestion
 	./services/library
+	./services/search
 	./services/shared
 )

@@ -20,6 +20,7 @@ import (
 	ingdomain "github.com/tomeku/doclens/services/ingestion/domain"
 	libapp "github.com/tomeku/doclens/services/library/app"
 	libdomain "github.com/tomeku/doclens/services/library/domain"
+	searchapp "github.com/tomeku/doclens/services/search/app"
 	"github.com/tomeku/doclens/services/shared/storage"
 	"github.com/tomeku/doclens/services/shared/version"
 )
@@ -30,6 +31,7 @@ type Server struct {
 	uploads   *ingapp.Service
 	library   *libapp.Service
 	hub       *pubsub.Hub
+	search    *searchapp.Service
 }
 
 // Deps bundles every collaborator the Server needs.
@@ -42,6 +44,8 @@ type Deps struct {
 	// Hub is the live-status fanout for SSE. Optional: when nil the
 	// /v1/documents/stream endpoint returns 503.
 	Hub *pubsub.Hub
+	// Search is optional: when nil the /v1/search endpoint returns 503.
+	Search *searchapp.Service
 }
 
 // New returns a Server ready to be wired into the chi router.
@@ -51,6 +55,7 @@ func New(deps Deps) *Server {
 		uploads:   deps.Uploads,
 		library:   deps.Library,
 		hub:       deps.Hub,
+		search:    deps.Search,
 	}
 }
 

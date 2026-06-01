@@ -19,6 +19,7 @@ import (
 
 	"github.com/tomeku/doclens/apps/extraction-worker/internal/config"
 	"github.com/tomeku/doclens/apps/extraction-worker/internal/handlers"
+	"github.com/tomeku/doclens/apps/extraction-worker/internal/readytx"
 	extractionapp "github.com/tomeku/doclens/services/extraction/app"
 	"github.com/tomeku/doclens/services/extraction/adapters/markitdown"
 	"github.com/tomeku/doclens/services/extraction/adapters/noopthumbnailer"
@@ -77,6 +78,7 @@ func main() {
 				EnabledMimes: cfg.EnabledMimeTypes,
 				Logger:       logger,
 				Thumbnailer:  thumb,
+				Transactor:   readytx.New(pool),
 			},
 		)
 		if err != nil {
