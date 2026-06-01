@@ -40,6 +40,7 @@ type Service struct {
 	store           storage.ObjectStore
 	extractor       domain.Extractor
 	thumbnailer     domain.Thumbnailer
+	transactor      domain.Transactor
 	rawBucket       string
 	artifactsBucket string
 	logger          *slog.Logger
@@ -55,6 +56,12 @@ type Options struct {
 	Logger *slog.Logger
 	// Thumbnailer is optional. Pass noopthumbnailer.New() to skip.
 	Thumbnailer domain.Thumbnailer
+	// Transactor coordinates the ready-step writes (artifacts,
+	// status, search index) atomically. When nil, those writes run
+	// non-transactionally one after another (legacy v0.1.0 behavior
+	// — kept as a fallback so the worker keeps running if search
+	// indexing is intentionally disabled).
+	Transactor domain.Transactor
 }
 
 // NewService constructs a Service.
@@ -95,6 +102,7 @@ func NewService(
 		store:           store,
 		extractor:       extractor,
 		thumbnailer:     thumb,
+		transactor:      opts.Transactor,
 		rawBucket:       rawBucket,
 		artifactsBucket: artifactsBucket,
 		logger:          logger,
@@ -188,39 +196,30 @@ func (s *Service) Extract(ctx context.Context, documentID uuid.UUID) error {
 	}); err != nil {
 		return fmt.Errorf("extract: put markdown: %w", err)
 	}
-	if err := s.library.UpsertArtifact(ctx, &libdomain.Artifact{
-		DocumentID: doc.ID,
-		Kind:       libdomain.ArtifactMarkdown,
-		ObjectKey:  mdKey,
-		ByteSize:   int64(len(mdBody)),
-	}); err != nil {
-		return fmt.Errorf("extract: upsert markdown artifact: %w", err)
-	}
 
-	// Best-effort thumbnail. We don't fail the document if this
-	// step throws, only if Put or UpsertArtifact errors persistently.
+	// Best-effort thumbnail. Render and upload OUTSIDE the
+	// transaction (S3 isn't transactional) but capture its key/size
+	// so the ready-tx below can record the artifact row atomically
+	// alongside the document status flip.
+	var (
+		thumbKey  string
+		thumbSize int64
+	)
 	if s.thumbnailer != nil {
 		if thumb, err := s.thumbnailer.Thumbnail(ctx, bytes.NewReader(bytesIn), domain.MimeHint{
 			MimeType: doc.MimeType,
 			Filename: doc.SourceFilename,
 		}); err == nil && thumb != nil {
-			thumbKey := artifactKey(doc.ID, "thumbnail.png")
-			if putErr := s.store.Put(ctx, s.artifactsBucket, thumbKey, bytes.NewReader(thumb.Body), storage.PutOptions{
+			tk := artifactKey(doc.ID, "thumbnail.png")
+			if putErr := s.store.Put(ctx, s.artifactsBucket, tk, bytes.NewReader(thumb.Body), storage.PutOptions{
 				ContentType:   thumb.ContentType,
 				ContentLength: int64(len(thumb.Body)),
 			}); putErr != nil {
 				s.logger.Warn("extract: thumbnail put failed; continuing",
 					"document_id", doc.ID, "err", putErr)
 			} else {
-				if upErr := s.library.UpsertArtifact(ctx, &libdomain.Artifact{
-					DocumentID: doc.ID,
-					Kind:       libdomain.ArtifactThumbnail,
-					ObjectKey:  thumbKey,
-					ByteSize:   int64(len(thumb.Body)),
-				}); upErr != nil {
-					s.logger.Warn("extract: thumbnail upsert failed; continuing",
-						"document_id", doc.ID, "err", upErr)
-				}
+				thumbKey = tk
+				thumbSize = int64(len(thumb.Body))
 			}
 		} else if err != nil && !errors.Is(err, domain.ErrUnsupportedThumbnail) {
 			s.logger.Warn("extract: thumbnail render failed; continuing",
@@ -228,14 +227,69 @@ func (s *Service) Extract(ctx context.Context, documentID uuid.UUID) error {
 		}
 	}
 
-	// Compute metrics and flip to ready.
+	// Compute metrics.
 	metrics := libdomain.ReadyMetrics{
 		PageCount:  result.Pages,
 		WordCount:  WordCount(result.Markdown),
 		Confidence: ConfidenceFor(result),
 	}
-	if err := s.library.MarkReady(ctx, doc.ID, metrics); err != nil {
-		return fmt.Errorf("extract: mark ready: %w", err)
+
+	// Atomic completion step (Property 5):
+	//   - upsert markdown artifact row
+	//   - upsert thumbnail artifact row (if produced)
+	//   - upsert search index row
+	//   - mark document ready
+	//
+	// All four commit together or none of them do. If the search
+	// upsert fails, we don't transition to 'ready' — the asynq
+	// retry will attempt the whole step again next time.
+	commit := func(library libdomain.Repository, indexer domain.Indexer) error {
+		if err := library.UpsertArtifact(ctx, &libdomain.Artifact{
+			DocumentID: doc.ID,
+			Kind:       libdomain.ArtifactMarkdown,
+			ObjectKey:  mdKey,
+			ByteSize:   int64(len(mdBody)),
+		}); err != nil {
+			return fmt.Errorf("upsert markdown artifact: %w", err)
+		}
+		if thumbKey != "" {
+			if err := library.UpsertArtifact(ctx, &libdomain.Artifact{
+				DocumentID: doc.ID,
+				Kind:       libdomain.ArtifactThumbnail,
+				ObjectKey:  thumbKey,
+				ByteSize:   thumbSize,
+			}); err != nil {
+				return fmt.Errorf("upsert thumbnail artifact: %w", err)
+			}
+		}
+		if indexer != nil {
+			if err := indexer.Upsert(ctx, domain.IndexedDocument{
+				DocumentID: doc.ID,
+				OwnerID:    doc.OwnerID,
+				Title:      doc.Title,
+				Body:       result.Markdown,
+			}); err != nil {
+				return fmt.Errorf("index document: %w", err)
+			}
+		}
+		if err := library.MarkReady(ctx, doc.ID, metrics); err != nil {
+			return fmt.Errorf("mark ready: %w", err)
+		}
+		return nil
+	}
+
+	if s.transactor != nil {
+		if err := s.transactor.WithinReadyTx(ctx, commit); err != nil {
+			return fmt.Errorf("extract: ready tx: %w", err)
+		}
+	} else {
+		// Fallback: run the writes against the non-tx repos, no
+		// indexing. Used only when the worker is intentionally
+		// configured without a transactor (e.g. unit tests, or a
+		// search-disabled deployment).
+		if err := commit(s.library, nil); err != nil {
+			return fmt.Errorf("extract: commit: %w", err)
+		}
 	}
 
 	s.logger.Info("extract: completed",

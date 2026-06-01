@@ -14,15 +14,29 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/tomeku/doclens/services/library/domain"
+	"github.com/tomeku/doclens/services/shared/db"
 )
 
 // Repo persists Document aggregates.
 type Repo struct {
 	pool *pgxpool.Pool
+	q    db.Querier
 }
 
 // New returns a Repo backed by the given pgx pool.
-func New(pool *pgxpool.Pool) *Repo { return &Repo{pool: pool} }
+func New(pool *pgxpool.Pool) *Repo { return &Repo{pool: pool, q: pool} }
+
+// WithQuerier returns a copy of Repo bound to the given querier
+// (typically a `pgx.Tx`). Used when the extraction worker needs
+// MarkReady + UpsertArtifact + a search.Upsert in one transaction
+// (Property 5).
+//
+// The returned Repo intentionally has a nil pool so any code path
+// that accidentally tries to escape the transaction will fail loudly
+// instead of silently running outside it.
+func (r *Repo) WithQuerier(q db.Querier) *Repo {
+	return &Repo{pool: nil, q: q}
+}
 
 // FindAliveByOwnerSHA implements domain.Repository.
 func (r *Repo) FindAliveByOwnerSHA(ctx context.Context, ownerID, sha256 string) (*domain.Document, error) {
@@ -33,7 +47,7 @@ SELECT id, owner_id, title, source_filename, sha256, byte_size, mime_type,
 FROM library.documents
 WHERE owner_id = $1 AND sha256 = $2 AND status <> 'deleted'`
 
-	row := r.pool.QueryRow(ctx, q, ownerID, sha256)
+	row := r.q.QueryRow(ctx, q, ownerID, sha256)
 	d, err := scanDocument(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, domain.ErrDocumentNotFound
@@ -59,7 +73,7 @@ INSERT INTO library.documents (
 		d.Status = domain.StatusQueued
 	}
 
-	_, err := r.pool.Exec(ctx, q,
+	_, err := r.q.Exec(ctx, q,
 		d.ID, d.OwnerID, d.Title, d.SourceFilename, d.SHA256, d.ByteSize,
 		d.MimeType, string(d.Status), d.RawObjectKey,
 	)
@@ -83,7 +97,7 @@ SELECT id, owner_id, title, source_filename, sha256, byte_size, mime_type,
 FROM library.documents
 WHERE id = $1 AND owner_id = $2 AND status <> 'deleted'`
 
-	row := r.pool.QueryRow(ctx, q, id, ownerID)
+	row := r.q.QueryRow(ctx, q, id, ownerID)
 	d, err := scanDocument(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, domain.ErrDocumentNotFound
@@ -129,7 +143,7 @@ SELECT id, owner_id, title, source_filename, sha256, byte_size, mime_type,
 FROM library.documents
 WHERE id = $1`
 
-	row := r.pool.QueryRow(ctx, q, id)
+	row := r.q.QueryRow(ctx, q, id)
 	d, err := scanDocument(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, domain.ErrDocumentNotFound
@@ -149,7 +163,7 @@ UPDATE library.documents
    SET status = 'extracting'
  WHERE id = $1 AND status IN ('queued', 'extracting')`
 
-	tag, err := r.pool.Exec(ctx, q, id)
+	tag, err := r.q.Exec(ctx, q, id)
 	if err != nil {
 		return fmt.Errorf("library: mark extracting: %w", err)
 	}
@@ -170,7 +184,7 @@ UPDATE library.documents
        last_error = NULL
  WHERE id = $1 AND status <> 'deleted'`
 
-	tag, err := r.pool.Exec(ctx, q,
+	tag, err := r.q.Exec(ctx, q,
 		id, m.PageCount, m.WordCount, m.Confidence,
 	)
 	if err != nil {
@@ -190,7 +204,7 @@ UPDATE library.documents
        last_error = $2
  WHERE id = $1 AND status <> 'deleted'`
 
-	tag, err := r.pool.Exec(ctx, q, id, truncate(reason, 4096))
+	tag, err := r.q.Exec(ctx, q, id, truncate(reason, 4096))
 	if err != nil {
 		return fmt.Errorf("library: mark failed: %w", err)
 	}
@@ -209,7 +223,7 @@ UPDATE library.documents
        last_error = NULL
  WHERE id = $1 AND owner_id = $2 AND status = 'failed'`
 
-	tag, err := r.pool.Exec(ctx, q, id, ownerID)
+	tag, err := r.q.Exec(ctx, q, id, ownerID)
 	if err != nil {
 		return fmt.Errorf("library: mark retry: %w", err)
 	}
@@ -231,7 +245,7 @@ ON CONFLICT (document_id, kind)
 DO UPDATE SET object_key = EXCLUDED.object_key,
               byte_size  = EXCLUDED.byte_size`
 
-	_, err := r.pool.Exec(ctx, q,
+	_, err := r.q.Exec(ctx, q,
 		a.ID, a.DocumentID, string(a.Kind), a.ObjectKey, a.ByteSize,
 	)
 	if err != nil {
@@ -279,10 +293,10 @@ WHERE owner_id = $1 AND status <> 'deleted'`
 	)
 	if cursor == nil {
 		q := baseQ + ` ORDER BY created_at DESC, id DESC LIMIT $2`
-		rows, err = r.pool.Query(ctx, q, ownerID, limit+1)
+		rows, err = r.q.Query(ctx, q, ownerID, limit+1)
 	} else {
 		q := baseQ + ` AND (created_at, id) < ($2, $3) ORDER BY created_at DESC, id DESC LIMIT $4`
-		rows, err = r.pool.Query(ctx, q, ownerID, cursor.CreatedAt, cursor.ID, limit+1)
+		rows, err = r.q.Query(ctx, q, ownerID, cursor.CreatedAt, cursor.ID, limit+1)
 	}
 	if err != nil {
 		return nil, nil, fmt.Errorf("library: list by owner: %w", err)
@@ -318,7 +332,7 @@ FROM library.artifacts
 WHERE document_id = $1
 ORDER BY kind`
 
-	rows, err := r.pool.Query(ctx, q, documentID)
+	rows, err := r.q.Query(ctx, q, documentID)
 	if err != nil {
 		return nil, fmt.Errorf("library: list artifacts: %w", err)
 	}

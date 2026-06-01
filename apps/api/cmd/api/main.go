@@ -23,6 +23,8 @@ import (
 	ingpg "github.com/tomeku/doclens/services/ingestion/adapters/postgres"
 	libapp "github.com/tomeku/doclens/services/library/app"
 	libpg "github.com/tomeku/doclens/services/library/adapters/postgres"
+	searchpg "github.com/tomeku/doclens/services/search/adapters/postgres"
+	searchapp "github.com/tomeku/doclens/services/search/app"
 	"github.com/tomeku/doclens/services/shared/auth"
 	"github.com/tomeku/doclens/services/shared/auth/clerk"
 	"github.com/tomeku/doclens/services/shared/auth/local"
@@ -154,6 +156,11 @@ func buildDeps(ctx context.Context, cfg config.Config, logger *slog.Logger) (ser
 			return server.Deps{}, cleanup, fmt.Errorf("library service: %w", err)
 		}
 
+		searchSvc, err := searchapp.NewService(searchpg.New(pool))
+		if err != nil {
+			return server.Deps{}, cleanup, fmt.Errorf("search service: %w", err)
+		}
+
 		// Live-status SSE: a dedicated pgx.Conn handles LISTEN; the
 		// hub fans out to in-process SSE subscribers. The listener
 		// reconnects on its own; we don't fail startup on its first
@@ -174,6 +181,7 @@ func buildDeps(ctx context.Context, cfg config.Config, logger *slog.Logger) (ser
 			Uploads: uploads,
 			Library: library,
 			Hub:     hub,
+			Search:  searchSvc,
 		}
 	} else {
 		logger.Warn("upload + library routes disabled — postgres or s3 unavailable")

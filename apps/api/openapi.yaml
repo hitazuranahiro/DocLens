@@ -337,6 +337,55 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /v1/search:
+    get:
+      tags: [search]
+      operationId: searchDocuments
+      summary: Full-text search across the caller's library.
+      description: |
+        Runs a Postgres full-text query (per ADR 0010) scoped to the
+        authenticated user's documents. Supports `websearch` syntax —
+        quoted phrases, OR/AND keywords, leading `-` for negation.
+
+        Pagination uses an opaque `cursor` returned by the previous
+        page (mirrors the `/v1/documents` cursor contract).
+
+        Snippets are returned with `<mark>` tags around matching terms.
+        Clients MUST sanitize the `snippet` HTML before rendering
+        (DOMPurify or equivalent) — Postgres' `ts_headline` is
+        deliberately conservative but the contract here is bytes,
+        not safe HTML.
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 256
+          description: User query string (websearch syntax).
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Opaque pagination token from a previous response.
+      responses:
+        "200":
+          description: Search hits.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SearchPage"
+        "400":
+          description: Empty or invalid query.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
 components:
   securitySchemes:
     bearerAuth:
@@ -580,6 +629,38 @@ components:
         expiresAt:
           type: string
           format: date-time
+
+    SearchHit:
+      description: One full-text search result.
+      type: object
+      required: [documentId, title, snippet, rank]
+      properties:
+        documentId:
+          type: string
+          format: uuid
+        title:
+          type: string
+        snippet:
+          description: |
+            Highlighted excerpt with `<mark>` tags around matching terms.
+            UNTRUSTED HTML — clients MUST sanitize before rendering.
+          type: string
+        rank:
+          description: ts_rank_cd score; higher means a stronger match.
+          type: number
+          format: float
+
+    SearchPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/SearchHit"
+        nextCursor:
+          type: string
+          nullable: true
 
     Problem:
       description: RFC 7807 problem document.

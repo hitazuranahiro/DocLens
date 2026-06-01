@@ -1,6 +1,6 @@
 module github.com/tomeku/doclens/apps/api
 
-go 1.25.0
+go 1.23
 
 require (
 	github.com/getkin/kin-openapi v0.135.0
@@ -75,3 +75,7 @@ replace github.com/tomeku/doclens/services/ingestion => ../../services/ingestion
 replace github.com/tomeku/doclens/services/library => ../../services/library
 
 replace github.com/tomeku/doclens/services/extraction => ../../services/extraction
+
+require github.com/tomeku/doclens/services/search v0.0.0-00010101000000-000000000000
+
+replace github.com/tomeku/doclens/services/search => ../../services/search
