@@ -246,3 +246,98 @@ func truncate(s string, n int) string {
 	}
 	return s[:n]
 }
+
+
+// ListByOwner implements domain.Repository.
+//
+// Sort order is (created_at desc, id desc) and pagination uses the
+// row-tuple comparator so we can resume past identical timestamps:
+//
+//	WHERE owner_id = $1
+//	  AND status <> 'deleted'
+//	  AND (created_at, id) < ($cursorCreated, $cursorID)
+//	ORDER BY created_at DESC, id DESC
+//	LIMIT $limit + 1
+//
+// We fetch limit+1 to detect whether more rows exist; the extra row
+// is dropped before returning.
+func (r *Repo) ListByOwner(ctx context.Context, ownerID string, limit int, cursor *domain.Cursor) ([]*domain.Document, *domain.Cursor, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+
+	const baseQ = `
+SELECT id, owner_id, title, source_filename, sha256, byte_size, mime_type,
+       status, page_count, word_count, confidence, last_error,
+       raw_object_key, created_at, updated_at
+FROM library.documents
+WHERE owner_id = $1 AND status <> 'deleted'`
+
+	var (
+		rows pgx.Rows
+		err  error
+	)
+	if cursor == nil {
+		q := baseQ + ` ORDER BY created_at DESC, id DESC LIMIT $2`
+		rows, err = r.pool.Query(ctx, q, ownerID, limit+1)
+	} else {
+		q := baseQ + ` AND (created_at, id) < ($2, $3) ORDER BY created_at DESC, id DESC LIMIT $4`
+		rows, err = r.pool.Query(ctx, q, ownerID, cursor.CreatedAt, cursor.ID, limit+1)
+	}
+	if err != nil {
+		return nil, nil, fmt.Errorf("library: list by owner: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]*domain.Document, 0, limit+1)
+	for rows.Next() {
+		d, err := scanDocument(rows)
+		if err != nil {
+			return nil, nil, fmt.Errorf("library: list scan: %w", err)
+		}
+		out = append(out, d)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, fmt.Errorf("library: list iter: %w", err)
+	}
+
+	var next *domain.Cursor
+	if len(out) > limit {
+		last := out[limit-1]
+		next = &domain.Cursor{CreatedAt: last.CreatedAt, ID: last.ID}
+		out = out[:limit]
+	}
+	return out, next, nil
+}
+
+// FindArtifacts implements domain.Repository.
+func (r *Repo) FindArtifacts(ctx context.Context, documentID uuid.UUID) ([]*domain.Artifact, error) {
+	const q = `
+SELECT id, document_id, kind, object_key, byte_size, created_at
+FROM library.artifacts
+WHERE document_id = $1
+ORDER BY kind`
+
+	rows, err := r.pool.Query(ctx, q, documentID)
+	if err != nil {
+		return nil, fmt.Errorf("library: list artifacts: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]*domain.Artifact, 0, 4)
+	for rows.Next() {
+		var (
+			a       domain.Artifact
+			kindStr string
+		)
+		if err := rows.Scan(&a.ID, &a.DocumentID, &kindStr, &a.ObjectKey, &a.ByteSize, &a.CreatedAt); err != nil {
+			return nil, fmt.Errorf("library: artifact scan: %w", err)
+		}
+		a.Kind = domain.ArtifactKind(kindStr)
+		out = append(out, &a)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("library: artifact iter: %w", err)
+	}
+	return out, nil
+}
