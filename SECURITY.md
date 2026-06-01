@@ -4,11 +4,11 @@
 
 DocLens is pre-1.0. Security fixes target the latest `main` and the latest tagged release.
 
-| Version       | Supported          |
-| ------------- | ------------------ |
-| `main`        | :white_check_mark: |
+| Version        | Supported          |
+| -------------- | ------------------ |
+| `main`         | :white_check_mark: |
 | Latest release | :white_check_mark: |
-| Older         | :x:                |
+| Older          | :x:                |
 
 ## Reporting a Vulnerability
 
