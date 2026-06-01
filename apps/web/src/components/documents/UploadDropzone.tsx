@@ -1,11 +1,11 @@
-// UploadDropzone — drag/drop or click-to-pick a PDF, run the
+// UploadDropzone — drag/drop or click to pick a PDF, run the
 // two-phase upload flow, and reflect per-file state.
 //
 // Validation runs both client-side (so the user finds out before any
-// network round-trip) and server-side (the API is the source of truth
-// — see Property 6 / Req 2.3). Client-side checks that match server
-// rules are duplicated here on purpose: faster feedback, fewer wasted
-// presigns.
+// network round-trip) and server-side (the API is the source of
+// truth — see Property 6 / Req 2.3). Visual tokens follow DESIGN.md:
+// dashed border at radius-lg, brand-purple on drag-over, error-red
+// on drag-reject.
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
@@ -40,21 +40,11 @@ interface QueueItem {
 }
 
 export interface UploadDropzoneProps {
-  /** Override the accepted MIME types. Defaults to PDF only. */
   acceptedMimes?: readonly string[];
-  /** Override the size cap. Defaults to 100 MiB. */
   maxBytes?: number;
-  /** Called once per successfully completed item. */
   onUploaded?: (outcome: UploadOutcome, file: File) => void;
 }
 
-/**
- * Drag-and-drop / click-to-pick uploader for the M3 pipeline.
- *
- * Manages an in-memory queue rather than a global store; on
- * navigation the queue resets, which is the right v0.1 behavior
- * (no resumable uploads yet).
- */
 export function UploadDropzone({
   acceptedMimes = DEFAULT_ACCEPTED_MIMES,
   maxBytes = MAX_BYTES,
@@ -116,8 +106,6 @@ export function UploadDropzone({
       setQueue((prev) => [...prev, ...nextItems]);
       for (const item of nextItems) {
         if (item.status.kind === "queued") {
-          // Run uploads in parallel; the API enforces dedupe so two
-          // tabs racing the same file is also safe.
           void startUpload(item);
         }
       }
@@ -143,30 +131,28 @@ export function UploadDropzone({
       >
         <input {...getInputProps()} />
         <div className="flex flex-col items-center gap-2 text-center">
-          <p className="text-base font-medium">
+          <p className="text-title text-text-strong">
             {isDragActive
               ? isDragReject
                 ? "That file type isn't supported"
                 : "Drop to upload"
               : "Drag a PDF here, or click to choose"}
           </p>
-          <p className="text-xs text-zinc-500 dark:text-zinc-400">
+          <p className="text-caption text-muted">
             {acceptedMimes.join(", ")} · up to {formatBytes(maxBytes)}
           </p>
         </div>
       </div>
 
       {queue.length > 0 && (
-        <ul className="divide-y divide-zinc-200 rounded-lg border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
+        <ul className="divide-y divide-border rounded-md border border-border bg-surface">
           {queue.map((item) => (
             <li key={item.id} className="flex items-center justify-between gap-4 px-4 py-3">
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium">{item.file.name}</p>
-                <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                  {formatBytes(item.file.size)}
-                </p>
+                <p className="truncate text-label text-text-strong">{item.file.name}</p>
+                <p className="text-caption text-muted">{formatBytes(item.file.size)}</p>
               </div>
-              <StatusBadge status={item.status} />
+              <StatusPill status={item.status} />
             </li>
           ))}
         </ul>
@@ -175,41 +161,39 @@ export function UploadDropzone({
   );
 }
 
-function StatusBadge({ status }: { status: ItemStatus }) {
+function StatusPill({ status }: { status: ItemStatus }) {
   switch (status.kind) {
     case "queued":
-      return <span className="text-xs text-zinc-500">Waiting…</span>;
+      return <span className="text-caption text-muted">Waiting…</span>;
     case "hashing":
-      return <span className="text-xs text-zinc-500">Hashing…</span>;
+      return <span className="text-caption text-muted">Hashing…</span>;
     case "uploading":
-      return <span className="text-xs text-zinc-500">Uploading…</span>;
+      return <span className="text-caption text-info">Uploading…</span>;
     case "finalizing":
-      return <span className="text-xs text-zinc-500">Finalizing…</span>;
+      return <span className="text-caption text-info">Finalizing…</span>;
     case "done":
       return (
-        <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">
+        <span className="text-caption font-medium text-success">
           {status.outcome.kind === "duplicate"
             ? "Already in your library"
             : "Queued for extraction"}
         </span>
       );
     case "error":
-      return (
-        <span className="text-xs font-medium text-red-600 dark:text-red-400">{status.message}</span>
-      );
+      return <span className="text-caption font-medium text-error">{status.message}</span>;
   }
 }
 
 function dropzoneClass(active: boolean, reject: boolean): string {
   const base =
-    "flex min-h-[180px] cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed px-6 py-12 transition-colors";
+    "flex min-h-[180px] cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed px-6 py-12 transition-colors duration-base";
   if (reject) {
-    return `${base} border-red-400 bg-red-50/50 dark:bg-red-950/20`;
+    return `${base} border-error bg-error-surface`;
   }
   if (active) {
-    return `${base} border-zinc-900 bg-zinc-100/60 dark:border-zinc-100 dark:bg-zinc-900/60`;
+    return `${base} border-brand bg-brand/10`;
   }
-  return `${base} border-zinc-300 hover:border-zinc-400 dark:border-zinc-700 dark:hover:border-zinc-500`;
+  return `${base} border-border bg-surface hover:border-gray-400`;
 }
 
 function buildAccept(mimes: readonly string[]): Record<string, string[]> {

@@ -1,10 +1,3 @@
-// Library landing page.
-//
-// Server Component: fetches /v1/documents with the caller's Clerk
-// token, renders the list, and links each row to the reader page.
-// Cursor-based "Load more" is implemented as a plain link query so
-// browsers without JS still paginate.
-
 import Link from "next/link";
 
 import { apiFromServer } from "@/lib/api";
@@ -35,9 +28,9 @@ export default async function LibraryPage({
   return (
     <div className="space-y-8">
       <header className="flex items-end justify-between gap-4">
-        <div className="space-y-1">
-          <h1 className="text-2xl font-semibold tracking-tight">Library</h1>
-          <p className="text-sm text-zinc-600 dark:text-zinc-300">
+        <div className="space-y-2">
+          <h1 className="text-heading text-text-strong">Library</h1>
+          <p className="text-body text-muted">
             {items.length === 0
               ? "No documents yet."
               : data.nextCursor
@@ -47,7 +40,7 @@ export default async function LibraryPage({
         </div>
         <Link
           href="/upload"
-          className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+          className="rounded-sm bg-brand px-3 py-1.5 text-label text-white transition-opacity duration-base hover:opacity-90"
         >
           Upload
         </Link>
@@ -67,8 +60,8 @@ export default async function LibraryPage({
 function ErrorState({ status }: { status: number | undefined }) {
   return (
     <div className="space-y-4">
-      <h1 className="text-2xl font-semibold tracking-tight">Library</h1>
-      <div className="rounded-lg border border-red-200 bg-red-50 p-6 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
+      <h1 className="text-heading text-text-strong">Library</h1>
+      <div className="rounded-md border border-error bg-error-surface p-6 text-body text-error">
         <p className="font-medium">Couldn&apos;t load your library</p>
         <p className="mt-1">
           The API returned {status ?? "no response"}. Try refreshing in a moment.

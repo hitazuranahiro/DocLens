@@ -1,5 +1,4 @@
-// List view used by /library. Pure presentation: receives an array
-// of documents from the page-level Server Component.
+// List view used by /library. Pure presentation.
 
 import Link from "next/link";
 
@@ -33,7 +32,7 @@ export function DocumentList({ items, thumbnailHref, nextHref }: DocumentListPro
         <div className="flex justify-center pt-4">
           <Link
             href={nextHref}
-            className="rounded-md border border-zinc-300 px-4 py-2 text-sm font-medium hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-900"
+            className="rounded-sm border border-border bg-surface px-4 py-2 text-label transition-colors duration-base hover:border-gray-400"
           >
             Load more
           </Link>
@@ -45,12 +44,12 @@ export function DocumentList({ items, thumbnailHref, nextHref }: DocumentListPro
 
 function EmptyState() {
   return (
-    <div className="rounded-lg border border-dashed border-zinc-300 p-12 text-center dark:border-zinc-700">
-      <p className="text-base font-medium">Your library is empty</p>
-      <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-300">Upload a PDF to get started.</p>
+    <div className="rounded-lg border border-dashed border-border p-12 text-center">
+      <p className="text-title text-text-strong">Your library is empty</p>
+      <p className="mt-2 text-caption text-muted">Upload a PDF to get started.</p>
       <Link
         href="/upload"
-        className="mt-4 inline-flex rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+        className="mt-4 inline-flex rounded-sm bg-brand px-4 py-2 text-label text-white transition-colors duration-base hover:opacity-90"
       >
         Upload a document
       </Link>

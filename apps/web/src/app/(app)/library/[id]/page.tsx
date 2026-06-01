@@ -26,8 +26,6 @@ export default async function DocumentReaderPage({ params }: { params: Promise<{
     return <PendingState doc={doc} />;
   }
 
-  // Get a presigned URL for the original PDF. The 5-minute TTL is
-  // refreshed on every page load (Req 7.8).
   const raw = await client.GET("/v1/documents/{id}/raw", {
     params: { path: { id } },
   });
@@ -37,25 +35,20 @@ export default async function DocumentReaderPage({ params }: { params: Promise<{
 
   return (
     <div className="space-y-6">
-      <header className="flex flex-wrap items-center justify-between gap-2">
-        <div className="space-y-1">
-          <Link
-            href="/library"
-            className="text-xs text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
-          >
-            ← Back to library
-          </Link>
-          <div className="flex items-center gap-2">
-            <h1 className="text-xl font-semibold tracking-tight">{doc.title}</h1>
-            <StatusBadge status={doc.status} />
-          </div>
-          <p className="text-xs text-zinc-500 dark:text-zinc-400">
-            {doc.sourceFilename}
-            {doc.pageCount != null && ` · ${doc.pageCount} pages`}
-            {doc.wordCount != null && ` · ${doc.wordCount.toLocaleString()} words`}
-            {doc.confidence != null && ` · confidence ${Math.round(doc.confidence)}`}
-          </p>
+      <header className="space-y-2">
+        <Link href="/library" className="text-caption text-muted hover:text-text-strong">
+          ← Back to library
+        </Link>
+        <div className="flex flex-wrap items-center gap-2">
+          <h1 className="text-title text-text-strong">{doc.title}</h1>
+          <StatusBadge status={doc.status} />
         </div>
+        <p className="text-caption text-muted">
+          {doc.sourceFilename}
+          {doc.pageCount != null && ` · ${doc.pageCount} pages`}
+          {doc.wordCount != null && ` · ${doc.wordCount.toLocaleString()} words`}
+          {doc.confidence != null && ` · confidence ${Math.round(doc.confidence)}`}
+        </p>
       </header>
 
       <DocumentReader
@@ -71,16 +64,13 @@ export default async function DocumentReaderPage({ params }: { params: Promise<{
 
 function NotFoundState({ id, status }: { id: string; status: number | undefined }) {
   return (
-    <div className="space-y-4">
-      <Link
-        href="/library"
-        className="text-xs text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
-      >
+    <div className="space-y-6">
+      <Link href="/library" className="text-caption text-muted hover:text-text-strong">
         ← Back to library
       </Link>
-      <div className="rounded-lg border border-zinc-200 p-12 text-center dark:border-zinc-800">
-        <p className="text-base font-medium">Document not found</p>
-        <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-300">
+      <div className="rounded-md border border-border bg-surface p-12 text-center">
+        <p className="text-title text-text-strong">Document not found</p>
+        <p className="mt-2 text-body text-muted">
           {status === 404 || status === undefined
             ? `No document with id ${id} in your library.`
             : `The API returned ${status}.`}
@@ -108,20 +98,17 @@ function PendingState({
 
   return (
     <div className="space-y-6">
-      <Link
-        href="/library"
-        className="text-xs text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
-      >
+      <Link href="/library" className="text-caption text-muted hover:text-text-strong">
         ← Back to library
       </Link>
       <div className="space-y-3">
         <div className="flex items-center gap-2">
-          <h1 className="text-xl font-semibold tracking-tight">{doc.title}</h1>
+          <h1 className="text-title text-text-strong">{doc.title}</h1>
           <StatusBadge status={doc.status} />
         </div>
-        <p className="text-sm text-zinc-600 dark:text-zinc-300">{message}</p>
+        <p className="text-body text-muted">{message}</p>
         {doc.status === "failed" && (
-          <p className="text-xs text-zinc-500 dark:text-zinc-400">
+          <p className="text-caption text-muted">
             Use the retry endpoint to re-enqueue the document. (UI button lands with M6 live
             status.)
           </p>
@@ -133,7 +120,7 @@ function PendingState({
 
 function ErrorState({ message }: { message: string }) {
   return (
-    <div className="rounded-lg border border-red-200 bg-red-50 p-6 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
+    <div className="rounded-md border border-error bg-error-surface p-6 text-body text-error">
       {message}
     </div>
   );
