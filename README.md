@@ -6,7 +6,7 @@ DocLens is an open-source document intelligence platform that transforms PDFs, r
 
 Instead of simply extracting text, DocLens helps users understand, explore, and interact with information through AI-powered summaries, knowledge graphs, document search, and intelligent analysis.
 
-![DocLens Banner](./assets/banner.png)
+![DocLens Banner](https://chatgpt.com/backend-api/estuary/content?id=file_00000000906c7209b618bc06ae0207b9&ts=494520&p=fsns&cid=1&sig=c425303d6a5d57e25bf90dd06f647cfd81f8c82b7997579bcb25c1107abeb6ed&v=0)
 
 ---
 
