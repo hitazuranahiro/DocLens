@@ -16,6 +16,7 @@ import (
 
 	"github.com/tomeku/doclens/apps/api/internal/config"
 	"github.com/tomeku/doclens/apps/api/internal/handlers"
+	"github.com/tomeku/doclens/apps/api/internal/pubsub"
 	"github.com/tomeku/doclens/apps/api/internal/server"
 	"github.com/tomeku/doclens/apps/api/internal/sweeper"
 	ingapp "github.com/tomeku/doclens/services/ingestion/app"
@@ -152,9 +153,27 @@ func buildDeps(ctx context.Context, cfg config.Config, logger *slog.Logger) (ser
 		if err != nil {
 			return server.Deps{}, cleanup, fmt.Errorf("library service: %w", err)
 		}
+
+		// Live-status SSE: a dedicated pgx.Conn handles LISTEN; the
+		// hub fans out to in-process SSE subscribers. The listener
+		// reconnects on its own; we don't fail startup on its first
+		// hiccup.
+		hub := pubsub.NewHub(0)
+		listener := pubsub.NewListener(
+			pubsub.PgxConnector(cfg.DatabaseURL),
+			hub,
+			pubsub.Options{Logger: logger},
+		)
+		go func() {
+			if err := listener.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+				logger.Error("pubsub: listener stopped", "err", err)
+			}
+		}()
+
 		deps.Handlers = handlers.Deps{
 			Uploads: uploads,
 			Library: library,
+			Hub:     hub,
 		}
 	} else {
 		logger.Warn("upload + library routes disabled — postgres or s3 unavailable")

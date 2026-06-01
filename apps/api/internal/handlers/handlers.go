@@ -13,6 +13,7 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	gen "github.com/tomeku/doclens/apps/api/internal/generated/api"
+	"github.com/tomeku/doclens/apps/api/internal/pubsub"
 	"github.com/tomeku/doclens/apps/api/internal/transport"
 
 	ingapp "github.com/tomeku/doclens/services/ingestion/app"
@@ -28,6 +29,7 @@ type Server struct {
 	startedAt time.Time
 	uploads   *ingapp.Service
 	library   *libapp.Service
+	hub       *pubsub.Hub
 }
 
 // Deps bundles every collaborator the Server needs.
@@ -37,6 +39,9 @@ type Server struct {
 type Deps struct {
 	Uploads *ingapp.Service
 	Library *libapp.Service
+	// Hub is the live-status fanout for SSE. Optional: when nil the
+	// /v1/documents/stream endpoint returns 503.
+	Hub *pubsub.Hub
 }
 
 // New returns a Server ready to be wired into the chi router.
@@ -45,6 +50,7 @@ func New(deps Deps) *Server {
 		startedAt: time.Now(),
 		uploads:   deps.Uploads,
 		library:   deps.Library,
+		hub:       deps.Hub,
 	}
 }
 
