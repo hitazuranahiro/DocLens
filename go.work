@@ -2,6 +2,8 @@ go 1.25.0
 
 use (
 	./apps/api
+	./apps/extraction-worker
+	./services/extraction
 	./services/ingestion
 	./services/library
 	./services/shared

@@ -23,6 +23,9 @@ import (
 	"github.com/tomeku/doclens/services/shared/auth"
 	"github.com/tomeku/doclens/services/shared/auth/clerk"
 	"github.com/tomeku/doclens/services/shared/auth/local"
+	"github.com/tomeku/doclens/services/shared/jobs"
+	jobsasynq "github.com/tomeku/doclens/services/shared/jobs/asynq"
+	jobsinmem "github.com/tomeku/doclens/services/shared/jobs/inmem"
 	"github.com/tomeku/doclens/services/shared/storage"
 	storages3 "github.com/tomeku/doclens/services/shared/storage/s3"
 )
@@ -130,6 +133,7 @@ func buildDeps(ctx context.Context, cfg config.Config, logger *slog.Logger) (ser
 
 	deps := server.Deps{Auth: authn}
 	if pool != nil && store != nil {
+		bus := buildJobBus(cfg, logger)
 		uploads := ingapp.NewServiceMust(
 			ingpg.New(pool),
 			libpg.New(pool),
@@ -138,6 +142,8 @@ func buildDeps(ctx context.Context, cfg config.Config, logger *slog.Logger) (ser
 			ingapp.Options{
 				PresignTTL:  cfg.UploadPresignTTL,
 				EnabledMime: cfg.EnabledMimeTypes,
+				Bus:         bus,
+				Logger:      logger,
 			},
 		)
 		deps.Handlers = handlers.Deps{Uploads: uploads}
@@ -146,6 +152,22 @@ func buildDeps(ctx context.Context, cfg config.Config, logger *slog.Logger) (ser
 	}
 
 	return deps, cleanup, nil
+}
+
+// buildJobBus picks the asynq adapter when Redis is reachable; falls
+// back to the in-memory bus otherwise so dev contributors can test
+// the API without Redis. Production callers must have Redis up.
+func buildJobBus(cfg config.Config, logger *slog.Logger) jobs.JobBus {
+	bus, err := jobsasynq.New(cfg.RedisURL)
+	if err != nil {
+		logger.Warn("asynq bus unavailable; jobs will be recorded in-process",
+			"err", err,
+			"redis_url", cfg.RedisURL,
+		)
+		return jobsinmem.NewBus()
+	}
+	logger.Info("asynq bus connected", "redis_url", cfg.RedisURL)
+	return bus
 }
 
 func buildAuthenticator(cfg config.Config, logger *slog.Logger) auth.Authenticator {
