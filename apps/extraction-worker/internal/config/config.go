@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -13,6 +14,18 @@ type Config struct {
 	Env      string
 	RedisURL string
 
+	// Postgres
+	DatabaseURL string
+
+	// Object storage
+	S3Endpoint        string
+	S3Region          string
+	S3AccessKeyID     string
+	S3SecretAccessKey string
+	S3UsePathStyle    bool
+	S3BucketRaw       string
+	S3BucketArtifacts string
+
 	// Asynq
 	Queues      map[string]int
 	Concurrency int
@@ -20,6 +33,9 @@ type Config struct {
 	// MarkItDown
 	MarkItDownBin     string
 	MarkItDownTimeout time.Duration
+
+	// Thumbnailer
+	ThumbnailerBin string
 
 	// Extraction
 	EnabledMimeTypes []string
@@ -31,21 +47,35 @@ func Load() (Config, error) {
 		Env:      getOr("GO_ENV", "development"),
 		RedisURL: getOr("REDIS_URL", "redis://localhost:6379/0"),
 
-		// Default to one queue, all weight on it. We split priority
-		// queues in M5+ when extraction priorities matter.
+		DatabaseURL: getOr("DATABASE_URL",
+			"postgres://doclens:doclens@localhost:5432/doclens?sslmode=disable"),
+
+		S3Endpoint:        getOr("S3_ENDPOINT", "http://localhost:9000"),
+		S3Region:          getOr("S3_REGION", "us-east-1"),
+		S3AccessKeyID:     getOr("S3_ACCESS_KEY", "doclens"),
+		S3SecretAccessKey: getOr("S3_SECRET_KEY", "doclens-dev-secret"),
+		S3UsePathStyle:    strings.EqualFold(getOr("S3_USE_PATH_STYLE", "true"), "true"),
+		S3BucketRaw:       getOr("S3_BUCKET_RAW", "doclens-raw"),
+		S3BucketArtifacts: getOr("S3_BUCKET_ARTIFACTS", "doclens-artifacts"),
+
 		Queues:      map[string]int{"default": 1},
 		Concurrency: parseIntOr("WORKER_CONCURRENCY", 4),
 
 		MarkItDownBin:     getOr("MARKITDOWN_BIN", "markitdown"),
 		MarkItDownTimeout: parseDurationOr("MARKITDOWN_TIMEOUT", 5*time.Minute),
 
-		EnabledMimeTypes: []string{getOr("EXTRACTION_ENABLED_FORMATS", "application/pdf")},
+		ThumbnailerBin: getOr("THUMBNAILER_BIN", "pdftoppm"),
+
+		EnabledMimeTypes: parseCSV(getOr("EXTRACTION_ENABLED_FORMATS", "application/pdf")),
 	}
 	if cfg.Concurrency < 1 {
 		return Config{}, errors.New("WORKER_CONCURRENCY must be >= 1")
 	}
 	if cfg.MarkItDownTimeout <= 0 {
 		return Config{}, errors.New("MARKITDOWN_TIMEOUT must be positive")
+	}
+	if len(cfg.EnabledMimeTypes) == 0 {
+		return Config{}, errors.New("EXTRACTION_ENABLED_FORMATS must list at least one MIME type")
 	}
 	return cfg, nil
 }
@@ -79,4 +109,16 @@ func parseDurationOr(key string, fallback time.Duration) time.Duration {
 		return fallback
 	}
 	return d
+}
+
+func parseCSV(raw string) []string {
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			out = append(out, strings.ToLower(p))
+		}
+	}
+	return out
 }

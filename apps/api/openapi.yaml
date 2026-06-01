@@ -136,6 +136,41 @@ paths:
               schema:
                 $ref: "#/components/schemas/Problem"
 
+  /v1/documents/{id}/retry:
+    post:
+      tags: [uploads]
+      operationId: retryDocument
+      summary: Re-enqueue extraction for a failed document.
+      description: |
+        Transitions a `failed` document back to `queued` and re-enqueues the
+        `extract.document` job. Returns 409 when the document is in any
+        other state — finished or in-flight extractions are not retried.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "202":
+          description: Accepted. Extraction has been re-queued.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Document"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: |
+            Document is not in a retryable state.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+
 components:
   securitySchemes:
     bearerAuth:

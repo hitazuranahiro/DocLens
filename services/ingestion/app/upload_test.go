@@ -3,6 +3,7 @@ package app_test
 import (
 	"context"
 	"errors"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -92,6 +93,58 @@ func (f *fakeLibraryRepo) FindByID(_ context.Context, ownerID string, id uuid.UU
 	}
 	return d, nil
 }
+func (f *fakeLibraryRepo) FindByIDUnscoped(_ context.Context, id uuid.UUID) (*libdomain.Document, error) {
+	d, ok := f.byID[id]
+	if !ok {
+		return nil, libdomain.ErrDocumentNotFound
+	}
+	return d, nil
+}
+func (f *fakeLibraryRepo) MarkExtracting(_ context.Context, id uuid.UUID) error {
+	d, ok := f.byID[id]
+	if !ok {
+		return libdomain.ErrDocumentNotFound
+	}
+	d.Status = libdomain.StatusExtracting
+	return nil
+}
+func (f *fakeLibraryRepo) MarkReady(_ context.Context, id uuid.UUID, m libdomain.ReadyMetrics) error {
+	d, ok := f.byID[id]
+	if !ok {
+		return libdomain.ErrDocumentNotFound
+	}
+	d.Status = libdomain.StatusReady
+	d.PageCount = &m.PageCount
+	d.WordCount = &m.WordCount
+	d.Confidence = &m.Confidence
+	d.LastError = nil
+	return nil
+}
+func (f *fakeLibraryRepo) MarkFailed(_ context.Context, id uuid.UUID, reason string) error {
+	d, ok := f.byID[id]
+	if !ok {
+		return libdomain.ErrDocumentNotFound
+	}
+	d.Status = libdomain.StatusFailed
+	r := reason
+	d.LastError = &r
+	return nil
+}
+func (f *fakeLibraryRepo) MarkRetry(_ context.Context, ownerID string, id uuid.UUID) error {
+	d, ok := f.byID[id]
+	if !ok || d.OwnerID != ownerID {
+		return libdomain.ErrDocumentNotFound
+	}
+	if d.Status != libdomain.StatusFailed {
+		return libdomain.ErrInvalidTransition
+	}
+	d.Status = libdomain.StatusQueued
+	d.LastError = nil
+	return nil
+}
+func (f *fakeLibraryRepo) UpsertArtifact(_ context.Context, _ *libdomain.Artifact) error {
+	return nil
+}
 
 type fakeStore struct {
 	headInfo  storage.ObjectInfo
@@ -122,6 +175,12 @@ func (f *fakeStore) Head(_ context.Context, _, _ string) (storage.ObjectInfo, er
 func (f *fakeStore) Delete(_ context.Context, bucket, key string) error {
 	f.deletes = append(f.deletes, bucket+"/"+key)
 	return nil
+}
+func (f *fakeStore) Get(context.Context, string, string) (io.ReadCloser, error) {
+	return nil, errors.New("not implemented in this test")
+}
+func (f *fakeStore) Put(context.Context, string, string, io.Reader, storage.PutOptions) error {
+	return errors.New("not implemented in this test")
 }
 
 type fakeClock struct{ now time.Time }

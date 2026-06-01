@@ -374,3 +374,41 @@ func NewServiceMust(
 	}
 	return svc
 }
+
+
+// RetryDocument transitions a 'failed' document back to 'queued' and
+// re-enqueues the extract.document job. Owner-scoped.
+//
+// Errors:
+//   - libdomain.ErrDocumentNotFound: no such doc, or owned by someone
+//     else (Req 7.9).
+//   - libdomain.ErrInvalidTransition: the document is not in 'failed'.
+func (s *Service) RetryDocument(ctx context.Context, ownerID string, id uuid.UUID) (*libdomain.Document, error) {
+	if err := s.library.MarkRetry(ctx, ownerID, id); err != nil {
+		return nil, err
+	}
+	doc, err := s.library.FindByID(ctx, ownerID, id)
+	if err != nil {
+		return nil, fmt.Errorf("ingestion: lookup retried doc: %w", err)
+	}
+
+	if s.bus != nil {
+		_, err := s.bus.Enqueue(ctx, jobs.Task{
+			Type: extractiondomain.TaskTypeExtractDocument,
+			Payload: extractiondomain.ExtractDocumentPayload{
+				DocumentID: doc.ID.String(),
+				OwnerID:    doc.OwnerID,
+			},
+			UniqueKey:  "extract:" + doc.ID.String(),
+			UniqueTTL:  5 * time.Minute,
+			MaxRetries: 5,
+			Timeout:    5 * time.Minute,
+		})
+		if err != nil && !errors.Is(err, jobs.ErrDuplicate) {
+			s.logger.Error("retry: enqueue failed",
+				"document_id", doc.ID, "err", err)
+		}
+	}
+
+	return doc, nil
+}

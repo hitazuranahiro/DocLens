@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -98,6 +99,58 @@ func (r *libRepo) FindByID(_ context.Context, ownerID string, id uuid.UUID) (*do
 	}
 	return d, nil
 }
+func (r *libRepo) FindByIDUnscoped(_ context.Context, id uuid.UUID) (*docRow, error) {
+	d, ok := r.byID[id]
+	if !ok {
+		return nil, libdomain.ErrDocumentNotFound
+	}
+	return d, nil
+}
+func (r *libRepo) MarkExtracting(_ context.Context, id uuid.UUID) error {
+	d, ok := r.byID[id]
+	if !ok {
+		return libdomain.ErrDocumentNotFound
+	}
+	d.Status = libdomain.StatusExtracting
+	return nil
+}
+func (r *libRepo) MarkReady(_ context.Context, id uuid.UUID, m libdomain.ReadyMetrics) error {
+	d, ok := r.byID[id]
+	if !ok {
+		return libdomain.ErrDocumentNotFound
+	}
+	d.Status = libdomain.StatusReady
+	d.PageCount = &m.PageCount
+	d.WordCount = &m.WordCount
+	d.Confidence = &m.Confidence
+	d.LastError = nil
+	return nil
+}
+func (r *libRepo) MarkFailed(_ context.Context, id uuid.UUID, reason string) error {
+	d, ok := r.byID[id]
+	if !ok {
+		return libdomain.ErrDocumentNotFound
+	}
+	d.Status = libdomain.StatusFailed
+	rs := reason
+	d.LastError = &rs
+	return nil
+}
+func (r *libRepo) MarkRetry(_ context.Context, ownerID string, id uuid.UUID) error {
+	d, ok := r.byID[id]
+	if !ok || d.OwnerID != ownerID {
+		return libdomain.ErrDocumentNotFound
+	}
+	if d.Status != libdomain.StatusFailed {
+		return libdomain.ErrInvalidTransition
+	}
+	d.Status = libdomain.StatusQueued
+	d.LastError = nil
+	return nil
+}
+func (r *libRepo) UpsertArtifact(_ context.Context, _ *libdomain.Artifact) error {
+	return nil
+}
 
 type fakeStore struct {
 	headInfo storage.ObjectInfo
@@ -117,6 +170,12 @@ func (f *fakeStore) Head(_ context.Context, _, _ string) (storage.ObjectInfo, er
 	return f.headInfo, f.headErr
 }
 func (f *fakeStore) Delete(context.Context, string, string) error { return nil }
+func (f *fakeStore) Get(context.Context, string, string) (io.ReadCloser, error) {
+	return nil, errors.New("not implemented in this test")
+}
+func (f *fakeStore) Put(context.Context, string, string, io.Reader, storage.PutOptions) error {
+	return errors.New("not implemented in this test")
+}
 
 // --- fixture --------------------------------------------------------------
 
@@ -447,5 +506,140 @@ func TestFinalize_EnqueuesExtractionJob(t *testing.T) {
 	}
 	if payload.OwnerID != "user_42" {
 		t.Fatalf("payload.OwnerID = %q, want user_42", payload.OwnerID)
+	}
+}
+
+
+// Helper for retry tests: run create + finalize, then mark the doc
+// 'failed' inside the in-memory library so the retry endpoint has a
+// candidate.
+func seedFailedDocument(t *testing.T, ts *httptest.Server, library *libRepo) string {
+	t.Helper()
+	createResp := postJSON(t, ts, "/v1/uploads", authHeader, map[string]any{
+		"filename": "x.pdf", "mimeType": "application/pdf", "size": 1024, "sha256": validSHA,
+	})
+	defer createResp.Body.Close()
+	var created struct {
+		UploadID   string `json:"uploadId"`
+		DocumentID string `json:"documentId"`
+	}
+	if err := json.NewDecoder(createResp.Body).Decode(&created); err != nil {
+		t.Fatalf("decode create: %v", err)
+	}
+
+	finReq, _ := http.NewRequest(http.MethodPost,
+		ts.URL+"/v1/documents/"+created.UploadID+"/finalize", nil)
+	finReq.Header.Set("Authorization", authHeader)
+	finResp, err := http.DefaultClient.Do(finReq)
+	if err != nil {
+		t.Fatalf("finalize: %v", err)
+	}
+	finResp.Body.Close()
+
+	docID := uuid.MustParse(created.DocumentID)
+	d := library.byID[docID]
+	d.Status = libdomain.StatusFailed
+	reason := "test failure"
+	d.LastError = &reason
+	return created.DocumentID
+}
+
+func TestRetry_HappyPath(t *testing.T) {
+	t.Parallel()
+	store := &fakeStore{headInfo: storage.ObjectInfo{ByteSize: 1024}}
+	ts, _, library, bus := newUploadServer(t, store)
+	defer ts.Close()
+
+	docID := seedFailedDocument(t, ts, library)
+
+	req, _ := http.NewRequest(http.MethodPost,
+		ts.URL+"/v1/documents/"+docID+"/retry", nil)
+	req.Header.Set("Authorization", authHeader)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("retry: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("status = %d, want 202", resp.StatusCode)
+	}
+	var body struct{ Status string }
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.Status != "queued" {
+		t.Fatalf("status = %q, want queued", body.Status)
+	}
+	// Two enqueues total: original finalize + retry. The unique key
+	// is owner+docID; the dedupe TTL on the in-mem bus prevents the
+	// second one. So we expect exactly 1 task in the bus's record.
+	if len(bus.Tasks()) != 1 {
+		t.Fatalf("bus tasks = %d, want 1 (deduped retry)", len(bus.Tasks()))
+	}
+}
+
+func TestRetry_NotFailedReturns409(t *testing.T) {
+	t.Parallel()
+	store := &fakeStore{headInfo: storage.ObjectInfo{ByteSize: 1024}}
+	ts, _, library, _ := newUploadServer(t, store)
+	defer ts.Close()
+
+	// Create + finalize, leave status=queued.
+	createResp := postJSON(t, ts, "/v1/uploads", authHeader, map[string]any{
+		"filename": "x.pdf", "mimeType": "application/pdf", "size": 1024, "sha256": validSHA,
+	})
+	var created struct {
+		UploadID   string `json:"uploadId"`
+		DocumentID string `json:"documentId"`
+	}
+	json.NewDecoder(createResp.Body).Decode(&created)
+	createResp.Body.Close()
+
+	finReq, _ := http.NewRequest(http.MethodPost,
+		ts.URL+"/v1/documents/"+created.UploadID+"/finalize", nil)
+	finReq.Header.Set("Authorization", authHeader)
+	finResp, _ := http.DefaultClient.Do(finReq)
+	finResp.Body.Close()
+
+	req, _ := http.NewRequest(http.MethodPost,
+		ts.URL+"/v1/documents/"+created.DocumentID+"/retry", nil)
+	req.Header.Set("Authorization", authHeader)
+	resp, _ := http.DefaultClient.Do(req)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("status = %d, want 409", resp.StatusCode)
+	}
+	_ = library
+}
+
+func TestRetry_OwnerIsolationReturns404(t *testing.T) {
+	t.Parallel()
+	store := &fakeStore{headInfo: storage.ObjectInfo{ByteSize: 1024}}
+	ts, _, library, _ := newUploadServer(t, store)
+	defer ts.Close()
+	docID := seedFailedDocument(t, ts, library)
+
+	req, _ := http.NewRequest(http.MethodPost,
+		ts.URL+"/v1/documents/"+docID+"/retry", nil)
+	req.Header.Set("Authorization", otherUser)
+	resp, _ := http.DefaultClient.Do(req)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", resp.StatusCode)
+	}
+}
+
+func TestRetry_RequiresAuth(t *testing.T) {
+	t.Parallel()
+	store := &fakeStore{}
+	ts, _, _, _ := newUploadServer(t, store)
+	defer ts.Close()
+	id := uuid.NewString()
+	req, _ := http.NewRequest(http.MethodPost,
+		ts.URL+"/v1/documents/"+id+"/retry", nil)
+	resp, _ := http.DefaultClient.Do(req)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", resp.StatusCode)
 	}
 }

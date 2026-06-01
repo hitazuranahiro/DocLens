@@ -1,84 +1,93 @@
 // Package handlers wires asynq task types to their Go handlers.
 //
-// M4 PR 1 ships only the registration plumbing and a logging
-// placeholder for `extract.document`. The real handler — download,
-// run extractor, upload artifacts, update DB — lands in PR 2 along
-// with idempotency tests against testcontainers.
+// extract.document is the only task today. The handler decodes the
+// payload and delegates to extractionapp.Service.Extract; transient
+// failures bubble back to asynq for retry, domain failures (the
+// document ends up 'failed') are acked.
 package handlers
 
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 
+	"github.com/google/uuid"
 	"github.com/hibiken/asynq"
 
+	extractionapp "github.com/tomeku/doclens/services/extraction/app"
 	"github.com/tomeku/doclens/services/extraction/domain"
 )
 
 // TaskTypeExtractDocument is the canonical name asynq dispatches on.
-// Both the API enqueuer and this handler reference the constant.
-const TaskTypeExtractDocument = "extract.document"
+// We re-export the constant from extraction/domain so callers stay
+// out of the worker package.
+const TaskTypeExtractDocument = domain.TaskTypeExtractDocument
 
 // ExtractDocumentPayload is the JSON shape the API enqueues.
-type ExtractDocumentPayload struct {
-	DocumentID string `json:"documentId"`
-	OwnerID    string `json:"ownerId"`
-}
+// Re-exported for the same reason as TaskTypeExtractDocument.
+type ExtractDocumentPayload = domain.ExtractDocumentPayload
 
-// ExtractHandler holds the dependencies the real handler will need.
-// Today only the extractor and a logger are wired; PR 2 adds the
-// document repo, artifact repo, and storage.
+// ExtractHandler is the asynq handler for extract.document.
 type ExtractHandler struct {
-	logger    *slog.Logger
-	extractor domain.Extractor
+	logger  *slog.Logger
+	service *extractionapp.Service
 }
 
-// NewExtractHandler returns the handler.
-func NewExtractHandler(logger *slog.Logger, ex domain.Extractor) *ExtractHandler {
-	return &ExtractHandler{logger: logger, extractor: ex}
+// NewExtractHandler returns the handler. service may be nil during
+// development (e.g. before Postgres/S3 are reachable); when nil,
+// the handler logs the payload and acks so the task isn't retried
+// forever against a broken environment.
+func NewExtractHandler(logger *slog.Logger, service *extractionapp.Service) *ExtractHandler {
+	return &ExtractHandler{logger: logger, service: service}
 }
 
-// Handle implements asynq.Handler for the extract.document task.
-//
-// PR 1 behavior: log, no-op-ack. The plumbing is exercised end-to-end
-// (asynq → mux → this method) so PR 2 just replaces the body.
-func (h *ExtractHandler) Handle(_ context.Context, t *asynq.Task) error {
+// Handle implements asynq.Handler for extract.document.
+func (h *ExtractHandler) Handle(ctx context.Context, t *asynq.Task) error {
 	var p ExtractDocumentPayload
 	if err := json.Unmarshal(t.Payload(), &p); err != nil {
 		// Bad payload: don't retry forever.
 		return fmt.Errorf("decode extract payload: %w: %w", err, asynq.SkipRetry)
 	}
 
-	h.logger.Info("extract.document received",
-		"document_id", p.DocumentID,
+	id, err := uuid.Parse(p.DocumentID)
+	if err != nil {
+		return fmt.Errorf("invalid documentId %q: %w: %w", p.DocumentID, err, asynq.SkipRetry)
+	}
+
+	if h.service == nil {
+		h.logger.Warn("extract.document: no service configured; dropping",
+			"document_id", id, "owner_id", p.OwnerID,
+			"task_id", asynqTaskID(t),
+		)
+		return nil
+	}
+
+	h.logger.Info("extract.document: starting",
+		"document_id", id,
 		"owner_id", p.OwnerID,
 		"task_id", asynqTaskID(t),
 	)
-
-	// PR 2 will replace this stub with the full pipeline:
-	//   1. Look up the document, transition status to extracting.
-	//   2. Download bytes from object storage.
-	//   3. Invoke h.extractor.Extract(ctx, body, hint).
-	//   4. Persist Markdown + thumbnail artifacts, set status=ready,
-	//      compute confidence, emit NOTIFY.
-	//
-	// For now the placeholder must not error or asynq will retry the
-	// stub forever.
+	if err := h.service.Extract(ctx, id); err != nil {
+		// Transient infra failure: let asynq retry. The Service
+		// converts domain failures (timeout, bad input, etc.) to
+		// nil + status=failed, so anything that reaches us here
+		// is worth a retry.
+		if errors.Is(err, ctx.Err()) {
+			return ctx.Err()
+		}
+		return fmt.Errorf("extract.document: %w", err)
+	}
 	return nil
 }
 
-// Register binds task types to the asynq.ServeMux. Returning the mux
-// keeps main.go small.
+// Register binds task types to the asynq.ServeMux.
 func Register(mux *asynq.ServeMux, h *ExtractHandler) {
 	mux.HandleFunc(TaskTypeExtractDocument, h.Handle)
 }
 
 // asynqTaskID returns the asynq-assigned task ID if available.
-// Asynq exposes it via the task's ResultWriter context, but on the
-// receive path it's only on the task header which is internal — we
-// best-effort look at the type-payload pair for now.
 func asynqTaskID(t *asynq.Task) string {
 	if rw := t.ResultWriter(); rw != nil {
 		return rw.TaskID()

@@ -11,6 +11,7 @@ package storage
 import (
 	"context"
 	"errors"
+	"io"
 	"time"
 )
 
@@ -46,9 +47,27 @@ type ObjectStore interface {
 	// Head returns metadata for the object, or ErrNotFound.
 	Head(ctx context.Context, bucket, key string) (ObjectInfo, error)
 
+	// Get streams the object body. The caller MUST close the reader.
+	// Workers use this for download-then-process; HTTP handlers use
+	// presigned URLs instead so the API never proxies bytes (ADR 0007).
+	Get(ctx context.Context, bucket, key string) (io.ReadCloser, error)
+
+	// Put uploads an object. Used by workers to store derived
+	// artifacts (extracted Markdown, thumbnails, etc.).
+	Put(ctx context.Context, bucket, key string, body io.Reader, opts PutOptions) error
+
 	// Delete removes the object. Idempotent: deleting a missing object
 	// returns nil.
 	Delete(ctx context.Context, bucket, key string) error
+}
+
+// PutOptions narrows what the caller is uploading.
+type PutOptions struct {
+	// ContentType is set on the stored object.
+	ContentType string
+	// ContentLength, when known, lets the adapter avoid buffering.
+	// Pass 0 when you don't know the size; the adapter MAY buffer.
+	ContentLength int64
 }
 
 // PresignPutOptions narrows what the client can PUT.
