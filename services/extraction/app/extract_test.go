@@ -125,6 +125,22 @@ func (r *libRepo) UpsertArtifact(_ context.Context, a *libdomain.Artifact) error
 	r.artifacts[a.DocumentID.String()+"/"+string(a.Kind)] = *a
 	return nil
 }
+func (r *libRepo) ListByOwner(context.Context, string, int, *libdomain.Cursor) ([]*libdomain.Document, *libdomain.Cursor, error) {
+	return nil, nil, nil
+}
+func (r *libRepo) FindArtifacts(_ context.Context, id uuid.UUID) ([]*libdomain.Artifact, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]*libdomain.Artifact, 0)
+	prefix := id.String() + "/"
+	for k, a := range r.artifacts {
+		if len(k) > len(prefix) && k[:len(prefix)] == prefix {
+			cp := a
+			out = append(out, &cp)
+		}
+	}
+	return out, nil
+}
 func (r *libRepo) artifactCount() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()

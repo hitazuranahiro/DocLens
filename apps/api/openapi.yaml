@@ -23,6 +23,8 @@ tags:
     description: Health, version, identity.
   - name: uploads
     description: Two-phase document upload.
+  - name: library
+    description: Read access to documents and their artifacts.
 paths:
   /v1/health:
     get:
@@ -170,6 +172,143 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/Problem"
+
+  /v1/documents:
+    get:
+      tags: [library]
+      operationId: listDocuments
+      summary: List the caller's documents (cursor-paginated).
+      description: |
+        Returns the most recently created documents first. Use `cursor` to
+        page; the next cursor (when present) is opaque and only meaningful
+        to this endpoint. Page size is fixed at 20 in v0.1.
+      parameters:
+        - name: cursor
+          in: query
+          required: false
+          description: Opaque pagination token returned in a previous response.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Page of documents.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocumentPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /v1/documents/{id}:
+    get:
+      tags: [library]
+      operationId: getDocument
+      summary: Document detail with derived artifacts.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Document detail.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocumentDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /v1/documents/{id}/markdown:
+    get:
+      tags: [library]
+      operationId: getDocumentMarkdown
+      summary: Stream the extracted Markdown.
+      description: |
+        Returns the canonical Markdown extraction. Only valid for documents
+        in the `ready` state.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Extracted Markdown.
+          content:
+            text/markdown:
+              schema:
+                type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Document is not in the `ready` state.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+
+  /v1/documents/{id}/thumbnail:
+    get:
+      tags: [library]
+      operationId: getDocumentThumbnail
+      summary: Stream the page-1 thumbnail.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: PNG thumbnail.
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /v1/documents/{id}/raw:
+    get:
+      tags: [library]
+      operationId: getDocumentRawURL
+      summary: Issue a short-lived URL for the original file.
+      description: |
+        Returns a presigned GET URL for the raw uploaded file. URL TTL is
+        capped at 5 minutes (Property 7 / Req 7.8).
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Presigned URL.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PresignedURL"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
 components:
   securitySchemes:
@@ -322,6 +461,61 @@ components:
           type: string
           format: date-time
         updatedAt:
+          type: string
+          format: date-time
+
+    DocumentPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Document"
+        nextCursor:
+          type: string
+          nullable: true
+          description: Token for the next page; null when there are no more items.
+
+    Artifact:
+      type: object
+      required: [id, documentId, kind, byteSize, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        documentId:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          enum: [markdown, metadata, thumbnail, page-text]
+        byteSize:
+          type: integer
+          format: int64
+        createdAt:
+          type: string
+          format: date-time
+
+    DocumentDetail:
+      type: object
+      required: [document, artifacts]
+      properties:
+        document:
+          $ref: "#/components/schemas/Document"
+        artifacts:
+          type: array
+          items:
+            $ref: "#/components/schemas/Artifact"
+
+    PresignedURL:
+      type: object
+      required: [url, expiresAt]
+      properties:
+        url:
+          type: string
+          format: uri
+        expiresAt:
           type: string
           format: date-time
 

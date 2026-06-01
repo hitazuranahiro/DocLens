@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -19,6 +20,7 @@ import (
 	"github.com/tomeku/doclens/apps/api/internal/sweeper"
 	ingapp "github.com/tomeku/doclens/services/ingestion/app"
 	ingpg "github.com/tomeku/doclens/services/ingestion/adapters/postgres"
+	libapp "github.com/tomeku/doclens/services/library/app"
 	libpg "github.com/tomeku/doclens/services/library/adapters/postgres"
 	"github.com/tomeku/doclens/services/shared/auth"
 	"github.com/tomeku/doclens/services/shared/auth/clerk"
@@ -146,9 +148,16 @@ func buildDeps(ctx context.Context, cfg config.Config, logger *slog.Logger) (ser
 				Logger:      logger,
 			},
 		)
-		deps.Handlers = handlers.Deps{Uploads: uploads}
+		library, err := libapp.NewService(libpg.New(pool), store, cfg.S3BucketRaw, cfg.S3BucketArtifacts)
+		if err != nil {
+			return server.Deps{}, cleanup, fmt.Errorf("library service: %w", err)
+		}
+		deps.Handlers = handlers.Deps{
+			Uploads: uploads,
+			Library: library,
+		}
 	} else {
-		logger.Warn("upload routes disabled — postgres or s3 unavailable")
+		logger.Warn("upload + library routes disabled — postgres or s3 unavailable")
 	}
 
 	return deps, cleanup, nil

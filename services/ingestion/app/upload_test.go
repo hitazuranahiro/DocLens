@@ -145,6 +145,12 @@ func (f *fakeLibraryRepo) MarkRetry(_ context.Context, ownerID string, id uuid.U
 func (f *fakeLibraryRepo) UpsertArtifact(_ context.Context, _ *libdomain.Artifact) error {
 	return nil
 }
+func (f *fakeLibraryRepo) ListByOwner(context.Context, string, int, *libdomain.Cursor) ([]*libdomain.Document, *libdomain.Cursor, error) {
+	return nil, nil, nil
+}
+func (f *fakeLibraryRepo) FindArtifacts(context.Context, uuid.UUID) ([]*libdomain.Artifact, error) {
+	return nil, nil
+}
 
 type fakeStore struct {
 	headInfo  storage.ObjectInfo

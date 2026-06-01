@@ -65,12 +65,17 @@ func (r *uploadRepo) ListExpired(context.Context, time.Time, int) ([]*uploadRow,
 func (r *uploadRepo) MarkExpired(context.Context, []uuid.UUID) error { return nil }
 
 type libRepo struct {
-	bySHA map[string]*docRow
-	byID  map[uuid.UUID]*docRow
+	bySHA     map[string]*docRow
+	byID      map[uuid.UUID]*docRow
+	artifacts map[string]libdomain.Artifact // key = docID + "/" + kind
 }
 
 func newLibRepo() *libRepo {
-	return &libRepo{bySHA: map[string]*docRow{}, byID: map[uuid.UUID]*docRow{}}
+	return &libRepo{
+		bySHA:     map[string]*docRow{},
+		byID:      map[uuid.UUID]*docRow{},
+		artifacts: map[string]libdomain.Artifact{},
+	}
 }
 func (r *libRepo) FindAliveByOwnerSHA(_ context.Context, ownerID, sha string) (*docRow, error) {
 	d, ok := r.bySHA[ownerID+":"+sha]
@@ -148,8 +153,66 @@ func (r *libRepo) MarkRetry(_ context.Context, ownerID string, id uuid.UUID) err
 	d.LastError = nil
 	return nil
 }
-func (r *libRepo) UpsertArtifact(_ context.Context, _ *libdomain.Artifact) error {
+func (r *libRepo) UpsertArtifact(_ context.Context, a *libdomain.Artifact) error {
+	if a.ID == uuid.Nil {
+		a.ID = uuid.New()
+	}
+	r.artifacts[a.DocumentID.String()+"/"+string(a.Kind)] = *a
 	return nil
+}
+func (r *libRepo) ListByOwner(_ context.Context, ownerID string, limit int, cursor *libdomain.Cursor) ([]*docRow, *libdomain.Cursor, error) {
+	docs := make([]*docRow, 0)
+	for _, d := range r.byID {
+		if d.OwnerID == ownerID && d.Status != libdomain.StatusDeleted {
+			docs = append(docs, d)
+		}
+	}
+	// Sort by (CreatedAt desc, ID desc).
+	sortDocs(docs)
+	if cursor != nil {
+		filtered := docs[:0]
+		for _, d := range docs {
+			if d.CreatedAt.Before(cursor.CreatedAt) ||
+				(d.CreatedAt.Equal(cursor.CreatedAt) && d.ID.String() < cursor.ID.String()) {
+				filtered = append(filtered, d)
+			}
+		}
+		docs = filtered
+	}
+	var next *libdomain.Cursor
+	if len(docs) > limit {
+		last := docs[limit-1]
+		next = &libdomain.Cursor{CreatedAt: last.CreatedAt, ID: last.ID}
+		docs = docs[:limit]
+	}
+	return docs, next, nil
+}
+func (r *libRepo) FindArtifacts(_ context.Context, id uuid.UUID) ([]*libdomain.Artifact, error) {
+	out := make([]*libdomain.Artifact, 0)
+	prefix := id.String() + "/"
+	for k, a := range r.artifacts {
+		if len(k) > len(prefix) && k[:len(prefix)] == prefix {
+			cp := a
+			out = append(out, &cp)
+		}
+	}
+	return out, nil
+}
+
+func sortDocs(docs []*docRow) {
+	// Insertion sort — lists are small in tests.
+	for i := 1; i < len(docs); i++ {
+		for j := i; j > 0; j-- {
+			a, b := docs[j-1], docs[j]
+			if a.CreatedAt.After(b.CreatedAt) {
+				break
+			}
+			if a.CreatedAt.Equal(b.CreatedAt) && a.ID.String() >= b.ID.String() {
+				break
+			}
+			docs[j-1], docs[j] = b, a
+		}
+	}
 }
 
 type fakeStore struct {

@@ -2,6 +2,7 @@ package domain
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -30,6 +31,17 @@ type Repository interface {
 	// filter. Workers (which dispatch on a documentId carried in a
 	// trusted job payload) need this; HTTP callers must not.
 	FindByIDUnscoped(ctx context.Context, id uuid.UUID) (*Document, error)
+
+	// ListByOwner returns up to `limit` documents owned by ownerID,
+	// most recent first. Pagination uses keyset on (created_at, id);
+	// pass nil cursor for the first page. nextCursor is non-nil iff
+	// more rows likely exist after this page.
+	ListByOwner(ctx context.Context, ownerID string, limit int, cursor *Cursor) ([]*Document, *Cursor, error)
+
+	// FindArtifacts returns every Artifact for the given document.
+	// Owner-scoping is enforced by the caller (look up the doc
+	// owner-scoped first; if it returns 404 don't call this).
+	FindArtifacts(ctx context.Context, documentID uuid.UUID) ([]*Artifact, error)
 
 	// MarkExtracting flips status to 'extracting' and records the
 	// attempt start. Idempotent if the row is already 'extracting'.
@@ -62,4 +74,13 @@ type ReadyMetrics struct {
 	PageCount  int
 	WordCount  int
 	Confidence int // 0..100
+}
+
+
+// Cursor is the keyset cursor for owner-scoped document listings.
+// Sort is by (created_at desc, id desc); the next page selects rows
+// strictly after the (CreatedAt, ID) pair on the previous page.
+type Cursor struct {
+	CreatedAt time.Time
+	ID        uuid.UUID
 }

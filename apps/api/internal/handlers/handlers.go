@@ -5,6 +5,8 @@ package handlers
 
 import (
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"time"
 
@@ -15,7 +17,9 @@ import (
 
 	ingapp "github.com/tomeku/doclens/services/ingestion/app"
 	ingdomain "github.com/tomeku/doclens/services/ingestion/domain"
+	libapp "github.com/tomeku/doclens/services/library/app"
 	libdomain "github.com/tomeku/doclens/services/library/domain"
+	"github.com/tomeku/doclens/services/shared/storage"
 	"github.com/tomeku/doclens/services/shared/version"
 )
 
@@ -23,6 +27,7 @@ import (
 type Server struct {
 	startedAt time.Time
 	uploads   *ingapp.Service
+	library   *libapp.Service
 }
 
 // Deps bundles every collaborator the Server needs.
@@ -31,6 +36,7 @@ type Server struct {
 // that constructs a Server.
 type Deps struct {
 	Uploads *ingapp.Service
+	Library *libapp.Service
 }
 
 // New returns a Server ready to be wired into the chi router.
@@ -38,6 +44,7 @@ func New(deps Deps) *Server {
 	return &Server{
 		startedAt: time.Now(),
 		uploads:   deps.Uploads,
+		library:   deps.Library,
 	}
 }
 
@@ -270,3 +277,181 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 }
 
 func ptr[T any](v T) *T { return &v }
+
+
+// ListDocuments implements GET /v1/documents.
+func (s *Server) ListDocuments(w http.ResponseWriter, r *http.Request, params gen.ListDocumentsParams) {
+	if s.library == nil {
+		transport.WriteProblem(w, http.StatusServiceUnavailable,
+			"Library unavailable", "the API is running without storage")
+		return
+	}
+	id, ok := transport.IdentityFrom(r.Context())
+	if !ok {
+		transport.WriteProblem(w, http.StatusUnauthorized,
+			"Unauthorized", "no identity in context")
+		return
+	}
+
+	cursor := ""
+	if params.Cursor != nil {
+		cursor = *params.Cursor
+	}
+	page, err := s.library.List(r.Context(), id.UserID, cursor)
+	if err != nil {
+		writeLibraryProblem(w, err)
+		return
+	}
+
+	out := gen.DocumentPage{
+		Items: make([]gen.Document, 0, len(page.Items)),
+	}
+	for _, d := range page.Items {
+		out.Items = append(out.Items, toGenDocument(d))
+	}
+	if page.NextCursor != "" {
+		nc := page.NextCursor
+		out.NextCursor = &nc
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// GetDocument implements GET /v1/documents/{id}.
+func (s *Server) GetDocument(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
+	if s.library == nil {
+		transport.WriteProblem(w, http.StatusServiceUnavailable,
+			"Library unavailable", "the API is running without storage")
+		return
+	}
+	authID, ok := transport.IdentityFrom(r.Context())
+	if !ok {
+		transport.WriteProblem(w, http.StatusUnauthorized,
+			"Unauthorized", "no identity in context")
+		return
+	}
+	det, err := s.library.Get(r.Context(), authID.UserID, id)
+	if err != nil {
+		writeLibraryProblem(w, err)
+		return
+	}
+	out := gen.DocumentDetail{
+		Document:  toGenDocument(det.Document),
+		Artifacts: make([]gen.Artifact, 0, len(det.Artifacts)),
+	}
+	for _, a := range det.Artifacts {
+		out.Artifacts = append(out.Artifacts, gen.Artifact{
+			Id:         a.ID,
+			DocumentId: a.DocumentID,
+			Kind:       gen.ArtifactKind(a.Kind),
+			ByteSize:   a.ByteSize,
+			CreatedAt:  a.CreatedAt,
+		})
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// GetDocumentMarkdown implements GET /v1/documents/{id}/markdown.
+func (s *Server) GetDocumentMarkdown(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
+	if s.library == nil {
+		transport.WriteProblem(w, http.StatusServiceUnavailable,
+			"Library unavailable", "the API is running without storage")
+		return
+	}
+	authID, ok := transport.IdentityFrom(r.Context())
+	if !ok {
+		transport.WriteProblem(w, http.StatusUnauthorized,
+			"Unauthorized", "no identity in context")
+		return
+	}
+	rc, size, err := s.library.MarkdownStream(r.Context(), authID.UserID, id)
+	if err != nil {
+		writeLibraryProblem(w, err)
+		return
+	}
+	defer rc.Close()
+	w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+	if size > 0 {
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", size))
+	}
+	w.WriteHeader(http.StatusOK)
+	_, _ = io.Copy(w, rc)
+}
+
+// GetDocumentThumbnail implements GET /v1/documents/{id}/thumbnail.
+func (s *Server) GetDocumentThumbnail(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
+	if s.library == nil {
+		transport.WriteProblem(w, http.StatusServiceUnavailable,
+			"Library unavailable", "the API is running without storage")
+		return
+	}
+	authID, ok := transport.IdentityFrom(r.Context())
+	if !ok {
+		transport.WriteProblem(w, http.StatusUnauthorized,
+			"Unauthorized", "no identity in context")
+		return
+	}
+	rc, size, err := s.library.ThumbnailStream(r.Context(), authID.UserID, id)
+	if err != nil {
+		writeLibraryProblem(w, err)
+		return
+	}
+	defer rc.Close()
+	w.Header().Set("Content-Type", "image/png")
+	if size > 0 {
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", size))
+	}
+	// Cache aggressively — thumbnails are content-addressed by docID
+	// and overwritten on retry.
+	w.Header().Set("Cache-Control", "private, max-age=300")
+	w.WriteHeader(http.StatusOK)
+	_, _ = io.Copy(w, rc)
+}
+
+// GetDocumentRawURL implements GET /v1/documents/{id}/raw.
+func (s *Server) GetDocumentRawURL(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
+	if s.library == nil {
+		transport.WriteProblem(w, http.StatusServiceUnavailable,
+			"Library unavailable", "the API is running without storage")
+		return
+	}
+	authID, ok := transport.IdentityFrom(r.Context())
+	if !ok {
+		transport.WriteProblem(w, http.StatusUnauthorized,
+			"Unauthorized", "no identity in context")
+		return
+	}
+	signed, err := s.library.RawPresignedURL(r.Context(), authID.UserID, id)
+	if err != nil {
+		writeLibraryProblem(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, gen.PresignedURL{
+		Url:       signed.URL,
+		ExpiresAt: signed.ExpiresAt,
+	})
+}
+
+// writeLibraryProblem maps library use-case errors to RFC 7807 responses.
+func writeLibraryProblem(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, libdomain.ErrDocumentNotFound),
+		errors.Is(err, libapp.ErrArtifactNotFound):
+		transport.WriteProblem(w, http.StatusNotFound,
+			"Not found", "no such resource")
+	case errors.Is(err, libapp.ErrInvalidCursor):
+		transport.WriteProblem(w, http.StatusBadRequest,
+			"Bad request", "invalid cursor")
+	case errors.Is(err, libapp.ErrNotReady):
+		transport.WriteProblem(w, http.StatusConflict,
+			"Document not ready",
+			"the document is still being extracted")
+	case errors.Is(err, storage.ErrNotFound):
+		// Object disappeared between the artifact row and the GET; rare
+		// (deletion sweep) but treat as 404 rather than 500.
+		transport.WriteProblem(w, http.StatusNotFound,
+			"Not found", "artifact missing")
+	default:
+		transport.WriteProblem(w, http.StatusInternalServerError,
+			"Internal server error", "")
+	}
+}
