@@ -13,18 +13,25 @@ import (
 	"github.com/tomeku/doclens/services/shared/auth"
 )
 
+// Deps bundles the API's collaborators. Anything wider than the auth
+// port lives here; tests build a Deps with fakes.
+type Deps struct {
+	Auth     auth.Authenticator
+	Handlers handlers.Deps
+}
+
 // New returns a fully-wired http.Handler for the API.
 //
 // The auth middleware is applied to every route except the public ones
 // listed in publicPaths.
-func New(a auth.Authenticator) http.Handler {
+func New(deps Deps) http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
-	r.Use(authGate(a))
+	r.Use(authGate(deps.Auth))
 
-	srv := handlers.New()
+	srv := handlers.New(deps.Handlers)
 	gen.HandlerFromMux(srv, r)
 	return r
 }

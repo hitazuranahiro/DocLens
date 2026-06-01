@@ -15,7 +15,7 @@ COMPOSE := $(shell \
 
 COMPOSE_FILE := infra/docker/docker-compose.dev.yml
 
-.PHONY: help bootstrap dev down logs ps test test-go test-web lint lint-go lint-web format gen migrate clean
+.PHONY: help bootstrap dev down logs ps test test-go test-web lint lint-go lint-web format gen migrate migrate-down clean
 
 help: ## Show this help.
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -84,8 +84,22 @@ gen: ## Regenerate code (Go server stubs + TS client) from openapi.yaml.
 	@echo "==> openapi-typescript (TS client)"
 	@pnpm --filter @doclens/api-client gen
 
-migrate: ## Apply database migrations. No-op until M3.
-	@echo "Migrations land in Milestone 3."
+migrate: ## Apply database migrations to DATABASE_URL.
+	@DATABASE_URL=$${DATABASE_URL:-postgres://doclens:doclens@localhost:5432/doclens?sslmode=disable}; \
+	if ! command -v migrate >/dev/null 2>&1; then \
+		echo "==> installing golang-migrate"; \
+		go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@v4.19.1; \
+	fi; \
+	echo "==> migrate up against $$DATABASE_URL"; \
+	migrate -path ./infra/migrations -database "$$DATABASE_URL" up
+
+migrate-down: ## Roll back ONE migration. Local development only.
+	@DATABASE_URL=$${DATABASE_URL:-postgres://doclens:doclens@localhost:5432/doclens?sslmode=disable}; \
+	if ! command -v migrate >/dev/null 2>&1; then \
+		echo "==> installing golang-migrate"; \
+		go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@v4.19.1; \
+	fi; \
+	migrate -path ./infra/migrations -database "$$DATABASE_URL" down 1
 
 clean: ## Remove build artifacts and caches.
 	rm -rf node_modules .turbo
