@@ -1,8 +1,3 @@
-// Upload page. Renders the dropzone in the protected (app) layout.
-// The dropzone itself is a client component because it owns local
-// state and uses Clerk's getToken; the page wrapper stays a Server
-// Component so navigation prefetches stay cheap.
-
 import Link from "next/link";
 
 import { UploadDropzone } from "@/components/documents/UploadDropzone";
@@ -10,9 +5,9 @@ import { UploadDropzone } from "@/components/documents/UploadDropzone";
 export default function UploadPage() {
   return (
     <div className="space-y-8">
-      <header className="space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight">Upload</h1>
-        <p className="text-sm text-zinc-600 dark:text-zinc-300">
+      <header className="space-y-2">
+        <h1 className="text-heading text-text-strong">Upload</h1>
+        <p className="text-body text-muted">
           Drop a PDF below. We hash it locally, presign an upload, and queue extraction. Files
           already in your library are detected and skipped automatically.
         </p>
@@ -20,9 +15,9 @@ export default function UploadPage() {
 
       <UploadDropzone />
 
-      <p className="text-xs text-zinc-500 dark:text-zinc-400">
+      <p className="text-caption text-muted">
         Looking for something you already uploaded?{" "}
-        <Link href="/library" className="underline">
+        <Link href="/library" className="text-brand underline-offset-4 hover:underline">
           Open your library
         </Link>
         .

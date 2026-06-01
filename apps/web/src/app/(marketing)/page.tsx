@@ -4,13 +4,13 @@ import Link from "next/link";
 
 export default function LandingPage() {
   return (
-    <section className="mx-auto flex max-w-5xl flex-col gap-12 px-6 py-20">
+    <section className="mx-auto flex max-w-5xl flex-col gap-12 px-6 py-12">
       <div className="space-y-6">
-        <p className="text-sm uppercase tracking-widest text-zinc-500">Open source · v0.1</p>
-        <h1 className="text-4xl font-semibold tracking-tight md:text-6xl">
+        <p className="text-label uppercase tracking-widest text-muted">Open source · v0.1</p>
+        <h1 className="text-display tracking-tight text-text-strong">
           Turn documents into knowledge.
         </h1>
-        <p className="max-w-2xl text-lg text-zinc-600 dark:text-zinc-300">
+        <p className="max-w-2xl text-body text-muted">
           Upload a PDF. DocLens extracts a clean Markdown rendering, indexes it for full-text
           search, and shows you the original and the extraction side by side. Self-host it, own your
           data.
@@ -18,13 +18,13 @@ export default function LandingPage() {
         <div className="flex flex-wrap gap-3">
           <Link
             href="/sign-in"
-            className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+            className="rounded-sm bg-brand px-4 py-2 text-label text-white transition-opacity duration-base hover:opacity-90"
           >
             Get started
           </Link>
           <Link
             href="https://github.com/hitazuranahiro/DocLens"
-            className="rounded-md border border-zinc-300 px-4 py-2 text-sm font-medium hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-900"
+            className="rounded-sm border border-border bg-surface px-4 py-2 text-label text-text-strong transition-colors duration-base hover:border-gray-400"
           >
             View on GitHub
           </Link>
@@ -48,9 +48,9 @@ export default function LandingPage() {
 
 function Feature({ title, body }: { title: string; body: string }) {
   return (
-    <div className="rounded-lg border border-zinc-200 p-6 dark:border-zinc-800">
-      <h2 className="text-base font-semibold">{title}</h2>
-      <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-300">{body}</p>
+    <div className="rounded-md border border-border bg-surface p-6 shadow-md">
+      <h2 className="text-title text-text-strong">{title}</h2>
+      <p className="mt-2 text-caption text-muted">{body}</p>
     </div>
   );
 }

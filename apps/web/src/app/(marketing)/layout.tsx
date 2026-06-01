@@ -1,29 +1,28 @@
-// Marketing layout. Public, unauthenticated. Renders a thin top nav
-// with sign-in CTA. Designed to keep dependencies and bundle size
-// minimal so the landing page is fast.
+// Marketing layout. Public, unauthenticated. Thin top nav with a
+// sign-in CTA. Designed to keep dependencies and bundle size minimal.
 
 import Link from "next/link";
 import { SignedIn, SignedOut, UserButton } from "@clerk/nextjs";
 
 export default function MarketingLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex min-h-screen flex-col">
-      <header className="border-b border-zinc-200 dark:border-zinc-800">
+    <div className="flex min-h-screen flex-col bg-bg">
+      <header className="border-b border-border">
         <div className="mx-auto flex h-14 max-w-5xl items-center justify-between px-6">
-          <Link href="/" className="font-semibold tracking-tight">
+          <Link href="/" className="text-title text-text-strong tracking-tight">
             DocLens
           </Link>
-          <nav className="flex items-center gap-4 text-sm">
+          <nav className="flex items-center gap-4 text-label">
             <Link
               href="https://github.com/hitazuranahiro/DocLens"
-              className="text-zinc-600 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-zinc-100"
+              className="text-muted transition-colors duration-base hover:text-text-strong"
             >
               GitHub
             </Link>
             <SignedOut>
               <Link
                 href="/sign-in"
-                className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+                className="rounded-sm bg-brand px-3 py-1.5 text-white transition-opacity duration-base hover:opacity-90"
               >
                 Sign in
               </Link>
@@ -31,7 +30,7 @@ export default function MarketingLayout({ children }: { children: React.ReactNod
             <SignedIn>
               <Link
                 href="/library"
-                className="text-zinc-600 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-zinc-100"
+                className="text-muted transition-colors duration-base hover:text-text-strong"
               >
                 Library
               </Link>
