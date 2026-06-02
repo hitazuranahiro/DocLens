@@ -13,9 +13,11 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/google/uuid"
 
 	"github.com/tomeku/doclens/apps/api/internal/config"
 	"github.com/tomeku/doclens/apps/api/internal/handlers"
+	"github.com/tomeku/doclens/apps/api/internal/librarytx"
 	"github.com/tomeku/doclens/apps/api/internal/pubsub"
 	"github.com/tomeku/doclens/apps/api/internal/server"
 	"github.com/tomeku/doclens/apps/api/internal/sweeper"
@@ -161,6 +163,16 @@ func buildDeps(ctx context.Context, cfg config.Config, logger *slog.Logger) (ser
 			return server.Deps{}, cleanup, fmt.Errorf("search service: %w", err)
 		}
 
+		// Wire delete: tx around library + search index, async S3
+		// cleanup. The search Repo doubles as the IndexEraser via
+		// the librarytx adapter.
+		library.SetDeleteDeps(
+			librarytx.New(pool),
+			&searchEraser{repo: searchpg.New(pool)},
+			store,
+			logger,
+		)
+
 		// Live-status SSE: a dedicated pgx.Conn handles LISTEN; the
 		// hub fans out to in-process SSE subscribers. The listener
 		// reconnects on its own; we don't fail startup on its first
@@ -221,4 +233,17 @@ func buildAuthenticator(cfg config.Config, logger *slog.Logger) auth.Authenticat
 		os.Exit(1)
 		return nil
 	}
+}
+
+
+// searchEraser bridges the search postgres Repo to the library's
+// IndexEraser port for the non-transactional path. The transactional
+// path uses librarytx's bound adapter; this fallback only fires when
+// the transactor encounters an error before the callback runs.
+type searchEraser struct {
+	repo *searchpg.Repo
+}
+
+func (s *searchEraser) Delete(ctx context.Context, id uuid.UUID) error {
+	return s.repo.Delete(ctx, id)
 }

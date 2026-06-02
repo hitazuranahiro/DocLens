@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -30,6 +31,13 @@ type Service struct {
 	store           storage.ObjectStore
 	rawBucket       string
 	artifactsBucket string
+
+	// Delete-side collaborators (M8). All optional; the non-tx
+	// fallback uses repo + indexEraser sequentially.
+	deleteTx    DeleteTransactor
+	indexEraser IndexEraser
+	deleteStore DeleteObjectStore
+	deleteLog   *slog.Logger
 }
 
 // NewService constructs a Service.
@@ -45,6 +53,7 @@ func NewService(repo domain.Repository, store storage.ObjectStore, rawBucket, ar
 		store:           store,
 		rawBucket:       rawBucket,
 		artifactsBucket: artifactsBucket,
+		deleteLog:       slog.Default(),
 	}, nil
 }
 

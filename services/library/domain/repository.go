@@ -62,6 +62,22 @@ type Repository interface {
 	// other source state.
 	MarkRetry(ctx context.Context, ownerID string, id uuid.UUID) error
 
+	// SoftDelete flips status to 'deleted' for an owner-scoped doc.
+	// Idempotent: deleting an already-deleted document returns nil
+	// (the row was already gone for the user). Owner-scoped to keep
+	// 404 vs 403 semantics clean (Req 7.9).
+	//
+	// Returns the document's raw_object_key + the artifact rows so
+	// the caller can hard-delete the underlying S3 objects after the
+	// transaction commits. The artifact rows themselves are deleted
+	// here; they're useless once the document is gone.
+	SoftDelete(ctx context.Context, ownerID string, id uuid.UUID) (rawKey string, artifactKeys []string, err error)
+
+	// HardDeleteFor removes the document row and all dependents.
+	// Used by the storage-cleanup sweeper after S3 objects are gone.
+	// Caller must verify status='deleted' before invoking this.
+	HardDelete(ctx context.Context, id uuid.UUID) error
+
 	// UpsertArtifact replaces or inserts an artifact for the
 	// (documentId, kind) tuple. Atomic; matches the unique constraint
 	// in the schema.

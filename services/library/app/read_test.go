@@ -92,6 +92,30 @@ func (r *fakeRepo) MarkRetry(context.Context, string, uuid.UUID) error  { return
 func (r *fakeRepo) UpsertArtifact(context.Context, *domain.Artifact) error {
 	return nil
 }
+func (r *fakeRepo) SoftDelete(_ context.Context, ownerID string, id uuid.UUID) (string, []string, error) {
+	d, ok := r.docs[id]
+	if !ok || d.OwnerID != ownerID {
+		return "", nil, domain.ErrDocumentNotFound
+	}
+	if d.Status == domain.StatusDeleted {
+		return d.RawObjectKey, nil, nil
+	}
+	keys := make([]string, 0, len(r.arts[id]))
+	for _, a := range r.arts[id] {
+		keys = append(keys, a.ObjectKey)
+	}
+	d.Status = domain.StatusDeleted
+	delete(r.arts, id)
+	return d.RawObjectKey, keys, nil
+}
+func (r *fakeRepo) HardDelete(_ context.Context, id uuid.UUID) error {
+	d, ok := r.docs[id]
+	if !ok || d.Status != domain.StatusDeleted {
+		return domain.ErrDocumentNotFound
+	}
+	delete(r.docs, id)
+	return nil
+}
 
 type fakeStore struct {
 	objects map[string][]byte // bucket+"/"+key

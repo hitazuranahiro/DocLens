@@ -116,6 +116,12 @@ func (r *libRepo) MarkFailed(_ context.Context, id uuid.UUID, reason string) err
 func (r *libRepo) MarkRetry(_ context.Context, _ string, _ uuid.UUID) error {
 	return errors.New("not used by extraction")
 }
+func (r *libRepo) SoftDelete(_ context.Context, _ string, _ uuid.UUID) (string, []string, error) {
+	return "", nil, errors.New("not used by extraction")
+}
+func (r *libRepo) HardDelete(_ context.Context, _ uuid.UUID) error {
+	return errors.New("not used by extraction")
+}
 func (r *libRepo) UpsertArtifact(_ context.Context, a *libdomain.Artifact) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()

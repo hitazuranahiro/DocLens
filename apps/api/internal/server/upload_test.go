@@ -160,6 +160,12 @@ func (r *libRepo) UpsertArtifact(_ context.Context, a *libdomain.Artifact) error
 	r.artifacts[a.DocumentID.String()+"/"+string(a.Kind)] = *a
 	return nil
 }
+func (r *libRepo) SoftDelete(_ context.Context, _ string, _ uuid.UUID) (string, []string, error) {
+	return "", nil, errors.New("not used by upload tests")
+}
+func (r *libRepo) HardDelete(_ context.Context, _ uuid.UUID) error {
+	return errors.New("not used by upload tests")
+}
 func (r *libRepo) ListByOwner(_ context.Context, ownerID string, limit int, cursor *libdomain.Cursor) ([]*docRow, *libdomain.Cursor, error) {
 	docs := make([]*docRow, 0)
 	for _, d := range r.byID {
