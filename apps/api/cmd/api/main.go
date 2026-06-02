@@ -256,10 +256,16 @@ func buildAuthenticator(cfg config.Config, logger *slog.Logger) auth.Authenticat
 		logger.Warn("auth provider: local (development only)")
 		return local.New()
 	case config.ProviderClerk:
-		return clerk.New(clerk.Config{
+		a, err := clerk.New(clerk.Config{
 			Issuer:   cfg.ClerkIssuer,
 			Audience: cfg.ClerkAud,
 		})
+		if err != nil {
+			logger.Error("clerk authenticator failed to start", "err", err)
+			os.Exit(1)
+		}
+		logger.Info("auth provider: clerk", "issuer", cfg.ClerkIssuer)
+		return a
 	default:
 		logger.Error("unsupported auth provider", "provider", cfg.AuthProvider)
 		os.Exit(1)
