@@ -141,10 +141,18 @@ jobs:
 
       - name: Bring up infra
         run: |
-          docker compose -f infra/docker/docker-compose.dev.yml up -d postgres redis minio
-          # Wait for Postgres + MinIO health (compose healthcheck or simple poll)
+          docker compose -f infra/docker/docker-compose.dev.yml up -d postgres redis minio minio-bootstrap
+          # Wait for Postgres to accept connections.
           for i in $(seq 1 30); do
             if docker compose -f infra/docker/docker-compose.dev.yml exec -T postgres pg_isready -U doclens -d doclens >/dev/null 2>&1; then
+              break
+            fi
+            sleep 1
+          done
+          # Wait for the minio-bootstrap one-shot to finish creating buckets.
+          for i in $(seq 1 30); do
+            status=$(docker inspect -f '{{.State.Status}}' doclens-minio-bootstrap 2>/dev/null || echo "missing")
+            if [ "$status" = "exited" ]; then
               break
             fi
             sleep 1
