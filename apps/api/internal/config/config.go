@@ -60,6 +60,12 @@ type Config struct {
 	OTelEndpoint   string
 	OTelInsecure   bool
 	OTelSampleRate float64
+
+	// CORS — explicit allow-list of origins permitted to call the
+	// API directly from the browser. Empty disables CORS (useful
+	// when a reverse proxy injects the headers, or when the API is
+	// only reached via Next.js Route Handler proxies).
+	CORSAllowedOrigins []string
 }
 
 // Load reads configuration from the environment and returns it validated.
@@ -96,6 +102,11 @@ func Load() (Config, error) {
 		OTelEndpoint:   os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
 		OTelInsecure:   strings.EqualFold(getOr("OTEL_EXPORTER_OTLP_INSECURE", "true"), "true"),
 		OTelSampleRate: parseFloatOr("OTEL_TRACES_SAMPLER_ARG", 0.1),
+
+		// Default to the dev web origin so local `make dev` works
+		// without configuration. Production deploys MUST override
+		// this with the real web origin.
+		CORSAllowedOrigins: parseCSV(getOr("CORS_ALLOWED_ORIGINS", "http://localhost:3000")),
 	}
 	if err := cfg.validate(); err != nil {
 		return Config{}, err

@@ -48,7 +48,7 @@ export default async function LibraryPage({
 
       <DocumentListLive
         initialItems={items}
-        thumbnailHrefFor={(id) => `/api/documents/${id}/thumbnail`}
+        thumbnailHrefPrefix="/api/documents/"
         nextHref={nextHref}
       />
     </div>

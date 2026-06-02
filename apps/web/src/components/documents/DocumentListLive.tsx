@@ -24,14 +24,21 @@ type Document = NonNullable<components["schemas"]["Document"]>;
 
 interface DocumentListLiveProps {
   initialItems: Document[];
-  thumbnailHrefFor: (id: string) => string | null;
+  /**
+   * URL prefix for thumbnail proxy. The full thumbnail URL for a
+   * document is `${thumbnailHrefPrefix}${id}/thumbnail`. We accept a
+   * prefix string (not a closure) because this prop crosses the
+   * Server → Client component boundary, and React requires
+   * serializable values there. Functions can't be passed directly.
+   */
+  thumbnailHrefPrefix: string;
   /** Pagination link from the Server Component, opaque to live updates. */
   nextHref: string | null;
 }
 
 export function DocumentListLive({
   initialItems,
-  thumbnailHrefFor,
+  thumbnailHrefPrefix,
   nextHref,
 }: DocumentListLiveProps) {
   const [items, setItems] = useState<Document[]>(initialItems);
@@ -83,7 +90,9 @@ export function DocumentListLive({
       )}
       <DocumentList
         items={items}
-        thumbnailHref={(doc) => (doc.status === "ready" ? thumbnailHrefFor(doc.id) : null)}
+        thumbnailHref={(doc) =>
+          doc.status === "ready" ? `${thumbnailHrefPrefix}${doc.id}/thumbnail` : null
+        }
         nextHref={nextHref}
         onDelete={handleDelete}
       />

@@ -170,7 +170,7 @@ func buildDeps(ctx context.Context, cfg config.Config, logger *slog.Logger) (ser
 		cleanup = func() { pool.Close() }
 	}
 
-	deps := server.Deps{Auth: authn}
+	deps := server.Deps{Auth: authn, AllowedOrigins: cfg.CORSAllowedOrigins}
 	if pool != nil && store != nil {
 		bus := buildJobBus(cfg, logger)
 		uploads := ingapp.NewServiceMust(

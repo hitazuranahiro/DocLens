@@ -22,6 +22,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -46,6 +47,13 @@ func New(q db.Querier) *Repo { return &Repo{q: q} }
 func (r *Repo) WithQuerier(q db.Querier) *Repo { return &Repo{q: q} }
 
 // Upsert implements domain.Repository.
+//
+// The body column is text — Postgres rejects non-UTF8 bytes with
+// SQLSTATE 22021. Real extractors (MarkItDown) emit UTF-8 markdown
+// and never trip this; the dev passthrough adapter that hands us
+// raw PDF bytes does. Sanitizing here means the contract is "best
+// effort, never crash"; the unit-tested search behavior is unchanged
+// for clean text.
 func (r *Repo) Upsert(ctx context.Context, d domain.Document) error {
 	const stmt = `
 INSERT INTO search.documents (document_id, owner_id, title, body, created_at, updated_at)
@@ -55,10 +63,28 @@ DO UPDATE SET title    = EXCLUDED.title,
               body     = EXCLUDED.body,
               owner_id = EXCLUDED.owner_id`
 
-	if _, err := r.q.Exec(ctx, stmt, d.DocumentID, d.OwnerID, d.Title, d.Body); err != nil {
+	if _, err := r.q.Exec(ctx, stmt,
+		d.DocumentID,
+		d.OwnerID,
+		toValidUTF8(d.Title),
+		toValidUTF8(d.Body),
+	); err != nil {
 		return fmt.Errorf("search: upsert: %w", err)
 	}
 	return nil
+}
+
+// toValidUTF8 returns s with any non-UTF8 bytes replaced by U+FFFD,
+// AND any embedded NUL bytes (\x00) stripped — Postgres rejects
+// nulls in text columns even when the rest of the payload is valid
+// UTF-8. The replacement is lossy but bounded; the alternative is
+// failing the whole extraction transaction over a single bad byte.
+func toValidUTF8(s string) string {
+	cleaned := strings.ToValidUTF8(s, "\uFFFD")
+	if !strings.ContainsRune(cleaned, '\x00') {
+		return cleaned
+	}
+	return strings.ReplaceAll(cleaned, "\x00", "")
 }
 
 // Delete implements domain.Repository.

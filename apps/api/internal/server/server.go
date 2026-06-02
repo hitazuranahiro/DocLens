@@ -18,6 +18,9 @@ import (
 type Deps struct {
 	Auth     auth.Authenticator
 	Handlers handlers.Deps
+	// AllowedOrigins is the CORS allow-list. Empty disables CORS
+	// (useful when a reverse proxy adds the headers).
+	AllowedOrigins []string
 }
 
 // New returns a fully-wired http.Handler for the API.
@@ -29,6 +32,9 @@ func New(deps Deps) http.Handler {
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
+	// CORS runs BEFORE the auth gate so preflights (which carry no
+	// Authorization header by spec) don't get rejected with 401.
+	r.Use(transport.CORS(transport.CORSConfig{AllowedOrigins: deps.AllowedOrigins}))
 	r.Use(authGate(deps.Auth))
 
 	srv := handlers.New(deps.Handlers)
