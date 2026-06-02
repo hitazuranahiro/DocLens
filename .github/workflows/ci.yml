@@ -103,3 +103,113 @@ jobs:
             fi
           done
           exit $missing
+
+  e2e:
+    name: E2E smoke
+    runs-on: ubuntu-latest
+    # Gated: runs on push to main and on PRs labelled `e2e` to keep
+    # day-to-day PR feedback fast. The smoke walks the full backend
+    # stack (compose up → upload → extract → search → delete) and
+    # takes ~3 minutes.
+    if: github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'e2e')
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+          cache: true
+
+      - name: Install JS deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright browsers
+        run: pnpm --filter @doclens/web exec playwright install --with-deps chromium
+
+      - name: Generate API artefacts
+        run: |
+          pnpm --filter @doclens/api-client gen
+          (cd apps/api && go run github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen \
+            --config oapi-codegen.yaml openapi.yaml)
+
+      - name: Bring up infra
+        run: |
+          docker compose -f infra/docker/docker-compose.dev.yml up -d postgres redis minio
+          # Wait for Postgres + MinIO health (compose healthcheck or simple poll)
+          for i in $(seq 1 30); do
+            if docker compose -f infra/docker/docker-compose.dev.yml exec -T postgres pg_isready -U doclens -d doclens >/dev/null 2>&1; then
+              break
+            fi
+            sleep 1
+          done
+
+      - name: Apply migrations
+        run: make migrate
+
+      - name: Start API
+        env:
+          AUTH_PROVIDER: local
+          GO_ENV: development
+          DATABASE_URL: postgres://doclens:doclens@localhost:5432/doclens?sslmode=disable
+          REDIS_URL: redis://localhost:6379/0
+          S3_ENDPOINT: http://localhost:9000
+          S3_USE_PATH_STYLE: "true"
+        run: |
+          (cd apps/api && go build -o /tmp/doclens-api ./cmd/api)
+          /tmp/doclens-api > /tmp/api.log 2>&1 &
+          echo $! > /tmp/api.pid
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8080/v1/health >/dev/null; then break; fi
+            sleep 1
+          done
+          curl -sf http://localhost:8080/v1/health
+
+      - name: Start worker
+        env:
+          DATABASE_URL: postgres://doclens:doclens@localhost:5432/doclens?sslmode=disable
+          REDIS_URL: redis://localhost:6379/0
+          S3_ENDPOINT: http://localhost:9000
+          S3_USE_PATH_STYLE: "true"
+          MARKITDOWN_BIN: passthrough
+          THUMBNAILER_BIN: noop
+        run: |
+          (cd apps/extraction-worker && go build -o /tmp/doclens-worker ./cmd/worker)
+          /tmp/doclens-worker > /tmp/worker.log 2>&1 &
+          echo $! > /tmp/worker.pid
+          sleep 2
+
+      - name: Run smoke
+        env:
+          PLAYWRIGHT_API_URL: http://localhost:8080
+        run: pnpm --filter @doclens/web test:e2e
+
+      - name: Tail logs on failure
+        if: failure()
+        run: |
+          echo "=== api.log ==="
+          tail -200 /tmp/api.log || true
+          echo "=== worker.log ==="
+          tail -200 /tmp/worker.log || true
+          docker compose -f infra/docker/docker-compose.dev.yml logs --tail 100
+
+      - name: Stop API/worker
+        if: always()
+        run: |
+          [ -f /tmp/api.pid ] && kill "$(cat /tmp/api.pid)" || true
+          [ -f /tmp/worker.pid ] && kill "$(cat /tmp/worker.pid)" || true
+          docker compose -f infra/docker/docker-compose.dev.yml down -v || true
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: apps/web/playwright-report/
+          if-no-files-found: ignore

@@ -27,6 +27,7 @@ import (
 	"github.com/tomeku/doclens/services/extraction/adapters/pdftoppm"
 	"github.com/tomeku/doclens/services/extraction/domain"
 	libpg "github.com/tomeku/doclens/services/library/adapters/postgres"
+	"github.com/tomeku/doclens/services/shared/observability/sentry"
 	storages3 "github.com/tomeku/doclens/services/shared/storage/s3"
 )
 
@@ -44,6 +45,15 @@ func main() {
 
 	rootCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	sentryShutdown := sentry.Init(sentry.Config{
+		DSN:         cfg.SentryDSN,
+		Environment: cfg.Env,
+		Release:     cfg.Release,
+		ServiceName: "doclens-worker",
+		Logger:      logger,
+	})
+	defer sentryShutdown(2 * time.Second)
 
 	// Best-effort init of Postgres + S3. If either is down we still
 	// boot so the queue plumbing can be debugged in dev; the

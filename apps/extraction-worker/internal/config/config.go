@@ -39,6 +39,10 @@ type Config struct {
 
 	// Extraction
 	EnabledMimeTypes []string
+
+	// Observability
+	SentryDSN string
+	Release   string
 }
 
 // Load returns the validated config.
@@ -67,6 +71,9 @@ func Load() (Config, error) {
 		ThumbnailerBin: getOr("THUMBNAILER_BIN", "pdftoppm"),
 
 		EnabledMimeTypes: parseCSV(getOr("EXTRACTION_ENABLED_FORMATS", "application/pdf")),
+
+		SentryDSN: os.Getenv("SENTRY_DSN"),
+		Release:   getOr("APP_RELEASE", ""),
 	}
 	if cfg.Concurrency < 1 {
 		return Config{}, errors.New("WORKER_CONCURRENCY must be >= 1")
