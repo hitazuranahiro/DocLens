@@ -31,6 +31,7 @@ import (
 	"github.com/tomeku/doclens/services/shared/auth/clerk"
 	"github.com/tomeku/doclens/services/shared/auth/local"
 	"github.com/tomeku/doclens/services/shared/jobs"
+	"github.com/tomeku/doclens/services/shared/observability/sentry"
 	jobsasynq "github.com/tomeku/doclens/services/shared/jobs/asynq"
 	jobsinmem "github.com/tomeku/doclens/services/shared/jobs/inmem"
 	"github.com/tomeku/doclens/services/shared/storage"
@@ -51,6 +52,16 @@ func main() {
 
 	rootCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	// Sentry: env-gated. No-op when SENTRY_DSN is empty.
+	sentryShutdown := sentry.Init(sentry.Config{
+		DSN:         cfg.SentryDSN,
+		Environment: cfg.Env,
+		Release:     cfg.Release,
+		ServiceName: "doclens-api",
+		Logger:      logger,
+	})
+	defer sentryShutdown(2 * time.Second)
 
 	deps, cleanup, err := buildDeps(rootCtx, cfg, logger)
 	if err != nil {

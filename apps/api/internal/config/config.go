@@ -50,6 +50,11 @@ type Config struct {
 	// Sweep cron
 	SweepInterval     time.Duration
 	UploadSweepWindow time.Duration
+
+	// Observability
+	SentryDSN string
+	// Release tags Sentry events with the build commit. Empty in dev.
+	Release string
 }
 
 // Load reads configuration from the environment and returns it validated.
@@ -79,6 +84,9 @@ func Load() (Config, error) {
 
 		SweepInterval:     parseDurationOr("UPLOAD_SWEEP_INTERVAL", 15*time.Minute),
 		UploadSweepWindow: parseDurationOr("UPLOAD_SWEEP_WINDOW", 24*time.Hour),
+
+		SentryDSN: os.Getenv("SENTRY_DSN"),
+		Release:   getOr("APP_RELEASE", ""),
 	}
 	if err := cfg.validate(); err != nil {
 		return Config{}, err

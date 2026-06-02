@@ -10,6 +10,48 @@ Instead of simply extracting text, DocLens helps users understand, explore, and 
 
 ---
 
+## Quickstart
+
+DocLens runs locally as a single \`docker compose\` stack: Postgres, Redis, MinIO, the Go API, the extraction worker, and the Next.js web client. The whole loop — sign in, upload a PDF, watch it extract, read the Markdown, search across documents, delete — runs offline against the local stack with no third-party services.
+
+### Prerequisites
+
+- Docker Desktop (or \`colima\` on macOS) with the \`docker compose\` plugin
+- Node 20+ and pnpm 9+
+- Go 1.23+
+- A few minutes; first \`make dev\` pulls images and runs migrations
+
+### Bring it up
+
+```bash
+git clone https://github.com/tomeku/doclens.git
+cd doclens
+make bootstrap         # installs JS deps + syncs the Go workspace
+make dev               # starts Postgres, Redis, MinIO, api, worker, web
+```
+
+You should see:
+
+- API healthy at <http://localhost:8080/v1/health>
+- Web at <http://localhost:3000>
+- MinIO console at <http://localhost:9001> (user/pass: \`doclens\`/\`doclens\`)
+
+The API ships with a local-auth provider for development (\`AUTH_PROVIDER=local\`); no Clerk account is required to upload documents and exercise the full flow. To enable Clerk for browser sign-in, set \`NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY\` and \`CLERK_SECRET_KEY\` in \`apps/web/.env\` and \`AUTH_PROVIDER=clerk\` plus the Clerk envs in \`apps/api/.env\`.
+
+### Common tasks
+
+```bash
+make test              # Go test ./... + pnpm vitest run
+make lint              # golangci-lint + eslint
+make gen               # regenerate OpenAPI client + server stubs
+make migrate           # apply Postgres migrations against the running compose stack
+make down              # stop everything
+```
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for the full development workflow.
+
+---
+
 ## Why DocLens?
 
 Modern document extraction tools focus on converting files into text.
