@@ -11,6 +11,64 @@ mapping back to `.kiro/specs/doclens-v0.1` stays explicit.
 
 - 7.5 — performance test for 1k-document libraries (target p95 < 500 ms).
 
+## [0.1.1] — 2026-06-02
+
+Patch release — three browser-side bugs that v0.1.0 silently
+shipped and that block the manual upload → extract → read flow on
+a fresh `make dev`. The e2e smoke missed these because it walks
+the API directly with the local-auth token shape; the real
+browser path through Clerk + Server Components + same-origin
+proxies stresses surfaces the smoke skipped.
+
+### Fixed
+
+- **`auth/clerk`: implement RS256 JWT verification.** The Clerk
+  authenticator was a fail-closed placeholder since M1 — every
+  Clerk-authenticated request returned 401, leaving signed-in users
+  with "Couldn't load your library — API returned 401". Adds real
+  JWKS-backed verification via `golang-jwt/v5` + `MicahParks/keyfunc/v3`
+  with `iss`/`exp`/`aud`/signature checks and `WithValidMethods=[RS256]`
+  to defeat the alg-confusion attack. New `clerk.New` returns
+  `(Authenticator, error)` and fails fast at boot when the JWKS
+  endpoint is unreachable. (#34)
+- **`library` page: fix Server-Component-to-Client-Component prop boundary.**
+  `DocumentListLive` was being rendered with a closure prop
+  (`thumbnailHrefFor={(id) => ...}`), which Next.js refuses to
+  serialize across the boundary; every render of `/library` threw
+  "Functions cannot be passed directly to Client Components" with
+  digest `3469674371`. The closure became a string prefix the client
+  composes itself. (#35)
+- **API: add CORS for browser-direct endpoints.** `/v1/uploads` and
+  `/v1/documents/{id}/finalize` are called directly from the browser
+  during the upload flow (the proxy-via-Next pattern doesn't fit a
+  three-step PUT-to-S3-then-finalize gesture). Without CORS the
+  preflight returned no `Access-Control-Allow-Origin` and the upload
+  never started. New `transport.CORS` middleware with explicit
+  allow-list, preflight short-circuit before the auth gate, and
+  default `http://localhost:3000` for local dev (override via
+  `CORS_ALLOWED_ORIGINS`). (#35)
+- **`search`: sanitize indexed body to valid UTF-8.** The dev
+  `passthrough` extractor returns raw PDF bytes, which the search
+  indexer then tried to insert verbatim into a `text` column.
+  Postgres rejected with `SQLSTATE 22021 (invalid byte sequence for
+encoding UTF8)`, the extraction transaction rolled back, and asynq
+  retried on its built-in backoff schedule — leaving the document
+  stuck in `extracting` for many minutes until exhausting retries.
+  Real production isn't affected (MarkItDown emits clean UTF-8) but
+  CI smoke and local dev hit the bug every upload. Defensive
+  `toValidUTF8` sanitizer on `title` + `body` plus a fix in
+  `passthrough` to emit valid UTF-8 with a synthetic header. (#35)
+
+### Improved
+
+- **Web favicon.** Added `apps/web/src/app/icon.svg` — brand-purple
+  document-with-lens glyph — to silence the `/favicon.ico 404` and
+  carry the brand into the browser tab. (#34)
+- **Clerk redirect env vars.** Switched the deprecated
+  `NEXT_PUBLIC_CLERK_AFTER_SIGN_*_URL` vars to the new
+  `NEXT_PUBLIC_CLERK_*_FALLBACK_REDIRECT_URL` form to match
+  `@clerk/nextjs` v6. (#34)
+
 ## [0.1.0] — 2026-06-02
 
 The first end-to-end version: a single-tenant document intelligence
@@ -157,5 +215,6 @@ and delete documents — all running locally against a single
 - OTel collector wiring exists in code; pointing it at a real
   collector is a deploy-time concern.
 
+[0.1.1]: https://github.com/tomeku/doclens/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/tomeku/doclens/releases/tag/v0.1.0
-[Unreleased]: https://github.com/tomeku/doclens/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/tomeku/doclens/compare/v0.1.1...HEAD
