@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -55,6 +56,10 @@ type Config struct {
 	SentryDSN string
 	// Release tags Sentry events with the build commit. Empty in dev.
 	Release string
+	// OTel collector endpoint. Empty disables tracing.
+	OTelEndpoint   string
+	OTelInsecure   bool
+	OTelSampleRate float64
 }
 
 // Load reads configuration from the environment and returns it validated.
@@ -87,6 +92,10 @@ func Load() (Config, error) {
 
 		SentryDSN: os.Getenv("SENTRY_DSN"),
 		Release:   getOr("APP_RELEASE", ""),
+
+		OTelEndpoint:   os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
+		OTelInsecure:   strings.EqualFold(getOr("OTEL_EXPORTER_OTLP_INSECURE", "true"), "true"),
+		OTelSampleRate: parseFloatOr("OTEL_TRACES_SAMPLER_ARG", 0.1),
 	}
 	if err := cfg.validate(); err != nil {
 		return Config{}, err
@@ -151,4 +160,17 @@ func parseDurationOr(key string, fallback time.Duration) time.Duration {
 		return fallback
 	}
 	return d
+}
+
+
+func parseFloatOr(key string, fallback float64) float64 {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback
+	}
+	f, err := strconv.ParseFloat(v, 64)
+	if err != nil {
+		return fallback
+	}
+	return f
 }

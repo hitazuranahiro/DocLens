@@ -27,6 +27,7 @@ import (
 	"github.com/tomeku/doclens/services/extraction/adapters/pdftoppm"
 	"github.com/tomeku/doclens/services/extraction/domain"
 	libpg "github.com/tomeku/doclens/services/library/adapters/postgres"
+	"github.com/tomeku/doclens/services/shared/observability/otel"
 	"github.com/tomeku/doclens/services/shared/observability/sentry"
 	storages3 "github.com/tomeku/doclens/services/shared/storage/s3"
 )
@@ -54,6 +55,25 @@ func main() {
 		Logger:      logger,
 	})
 	defer sentryShutdown(2 * time.Second)
+
+	otelShutdown, err := otel.Init(rootCtx, otel.Config{
+		Endpoint:    cfg.OTelEndpoint,
+		Insecure:    cfg.OTelInsecure,
+		ServiceName: "doclens-worker",
+		Environment: cfg.Env,
+		Release:     cfg.Release,
+		SampleRate:  cfg.OTelSampleRate,
+		Logger:      logger,
+	})
+	if err != nil {
+		logger.Error("otel init failed", "err", err)
+		os.Exit(1)
+	}
+	defer func() {
+		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = otelShutdown(shutCtx, 5*time.Second)
+	}()
 
 	// Best-effort init of Postgres + S3. If either is down we still
 	// boot so the queue plumbing can be debugged in dev; the
