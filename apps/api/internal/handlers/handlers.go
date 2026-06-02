@@ -466,3 +466,24 @@ func writeLibraryProblem(w http.ResponseWriter, err error) {
 			"Internal server error", "")
 	}
 }
+
+
+// DeleteDocument implements DELETE /v1/documents/{id}.
+func (s *Server) DeleteDocument(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
+	if s.library == nil {
+		transport.WriteProblem(w, http.StatusServiceUnavailable,
+			"Library unavailable", "the API is running without storage")
+		return
+	}
+	authID, ok := transport.IdentityFrom(r.Context())
+	if !ok {
+		transport.WriteProblem(w, http.StatusUnauthorized,
+			"Unauthorized", "no identity in context")
+		return
+	}
+	if _, err := s.library.Delete(r.Context(), authID.UserID, id); err != nil {
+		writeLibraryProblem(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}

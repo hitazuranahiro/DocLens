@@ -7,6 +7,9 @@
 // New documents that appear in the feed (event="INSERT") are
 // prepended to the list — this is what makes a freshly uploaded
 // document show up without a reload.
+//
+// Deletion (M8) is handled here too: we expose a DELETE button per
+// row, optimistically remove the row, and rollback on API error.
 
 "use client";
 
@@ -32,6 +35,7 @@ export function DocumentListLive({
   nextHref,
 }: DocumentListLiveProps) {
   const [items, setItems] = useState<Document[]>(initialItems);
+  const [error, setError] = useState<string | null>(null);
 
   const handleEvent = useCallback((ev: DocumentStatusEvent) => {
     setItems((prev) => applyEvent(prev, ev));
@@ -39,15 +43,49 @@ export function DocumentListLive({
 
   const { state } = useDocumentStream(handleEvent);
 
+  // Optimistic delete: snapshot the row, remove it, fire DELETE.
+  // On non-2xx, restore the row and surface a banner.
+  const handleDelete = useCallback(
+    async (doc: Document) => {
+      const prev = items;
+      const next = items.filter((d) => d.id !== doc.id);
+      setItems(next);
+      try {
+        const res = await fetch(`/api/documents/${doc.id}`, { method: "DELETE" });
+        if (!res.ok && res.status !== 204) {
+          throw new Error(`API ${res.status}`);
+        }
+        setError(null);
+      } catch (err) {
+        setItems(prev);
+        setError(
+          err instanceof Error
+            ? `Couldn't delete "${doc.title}" — ${err.message}`
+            : `Couldn't delete "${doc.title}"`,
+        );
+      }
+    },
+    [items],
+  );
+
   return (
     <div className="space-y-3">
       <div className="flex justify-end">
         <StreamIndicator state={state} />
       </div>
+      {error && (
+        <div
+          role="alert"
+          className="rounded-md border border-error bg-error-surface px-4 py-3 text-body text-error"
+        >
+          {error}
+        </div>
+      )}
       <DocumentList
         items={items}
         thumbnailHref={(doc) => (doc.status === "ready" ? thumbnailHrefFor(doc.id) : null)}
         nextHref={nextHref}
+        onDelete={handleDelete}
       />
     </div>
   );

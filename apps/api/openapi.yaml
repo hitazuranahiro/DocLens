@@ -224,6 +224,32 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [library]
+      operationId: deleteDocument
+      summary: Soft-delete a document.
+      description: |
+        Marks the document as `deleted`, removes it from the search
+        index, and asynchronously removes the underlying object-storage
+        files (Req 6.1, 6.3). The call is idempotent: deleting an
+        already-deleted document returns 204.
+
+        In-flight extraction jobs no-op when they next try to transition
+        a deleted document (Req 6.2).
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Deletion accepted.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
   /v1/documents/{id}/markdown:
     get:

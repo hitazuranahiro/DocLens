@@ -13,9 +13,11 @@ interface DocumentListProps {
   thumbnailHref: (doc: Document) => string | null;
   /** Page-2+ link, or null when there are no more pages. */
   nextHref: string | null;
+  /** Optional delete callback; when provided the row renders a delete button. */
+  onDelete?: (doc: Document) => void | Promise<void>;
 }
 
-export function DocumentList({ items, thumbnailHref, nextHref }: DocumentListProps) {
+export function DocumentList({ items, thumbnailHref, nextHref, onDelete }: DocumentListProps) {
   if (items.length === 0) {
     return <EmptyState />;
   }
@@ -24,7 +26,7 @@ export function DocumentList({ items, thumbnailHref, nextHref }: DocumentListPro
       <ul className="space-y-3">
         {items.map((doc) => (
           <li key={doc.id}>
-            <DocumentRow doc={doc} thumbnailHref={thumbnailHref(doc)} />
+            <DocumentRow doc={doc} thumbnailHref={thumbnailHref(doc)} onDelete={onDelete} />
           </li>
         ))}
       </ul>

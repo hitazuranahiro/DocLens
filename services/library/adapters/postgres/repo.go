@@ -355,3 +355,102 @@ ORDER BY kind`
 	}
 	return out, nil
 }
+
+
+// SoftDelete implements domain.Repository.
+//
+// We perform the read-then-write under a single statement when we
+// can; here we need both the raw_object_key and the artifact rows
+// in the result, so we issue two queries against `r.q`. Callers
+// that want atomicity wrap us in a tx via WithQuerier.
+//
+// The artifact rows are deleted in this call because they're
+// owned by the document and useless once it's gone. The S3 objects
+// they point at are returned so the caller can hard-delete them
+// asynchronously (S3 is not transactional).
+func (r *Repo) SoftDelete(ctx context.Context, ownerID string, id uuid.UUID) (string, []string, error) {
+	// Step 1: collect the raw + artifact keys we'll need to clean
+	// up. We read these BEFORE flipping status so a concurrent
+	// reader can't race us.
+	const docQ = `
+SELECT raw_object_key, status
+FROM library.documents
+WHERE id = $1 AND owner_id = $2`
+
+	var rawKey, statusStr string
+	if err := r.q.QueryRow(ctx, docQ, id, ownerID).Scan(&rawKey, &statusStr); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", nil, domain.ErrDocumentNotFound
+		}
+		return "", nil, fmt.Errorf("library: soft-delete lookup: %w", err)
+	}
+
+	// Idempotent: already deleted, return what we know.
+	if statusStr == string(domain.StatusDeleted) {
+		return rawKey, nil, nil
+	}
+
+	const artQ = `SELECT object_key FROM library.artifacts WHERE document_id = $1`
+	rows, err := r.q.Query(ctx, artQ, id)
+	if err != nil {
+		return "", nil, fmt.Errorf("library: soft-delete artifacts: %w", err)
+	}
+	artKeys := make([]string, 0, 4)
+	for rows.Next() {
+		var k string
+		if err := rows.Scan(&k); err != nil {
+			rows.Close()
+			return "", nil, fmt.Errorf("library: soft-delete artifact scan: %w", err)
+		}
+		artKeys = append(artKeys, k)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return "", nil, fmt.Errorf("library: soft-delete artifact iter: %w", err)
+	}
+
+	// Step 2: flip the status. Cascade on the artifacts FK removes
+	// the rows; the unique-alive index already excludes deleted
+	// rows so the user can re-upload immediately.
+	const updQ = `
+UPDATE library.documents
+   SET status = 'deleted',
+       last_error = NULL
+ WHERE id = $1 AND owner_id = $2 AND status <> 'deleted'`
+
+	tag, err := r.q.Exec(ctx, updQ, id, ownerID)
+	if err != nil {
+		return "", nil, fmt.Errorf("library: soft-delete update: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		// Race: deleted between our SELECT and UPDATE. Treat as
+		// idempotent success.
+		return rawKey, artKeys, nil
+	}
+
+	// Step 3: drop artifact rows. The S3 objects are still up;
+	// the caller hard-deletes them asynchronously.
+	const delArtQ = `DELETE FROM library.artifacts WHERE document_id = $1`
+	if _, err := r.q.Exec(ctx, delArtQ, id); err != nil {
+		return "", nil, fmt.Errorf("library: soft-delete clear artifacts: %w", err)
+	}
+
+	return rawKey, artKeys, nil
+}
+
+// HardDelete implements domain.Repository.
+//
+// Removes the document row outright. Foreign-key cascades take care
+// of any leftover artifact rows. Caller MUST have already cleaned
+// up the underlying S3 objects.
+func (r *Repo) HardDelete(ctx context.Context, id uuid.UUID) error {
+	const q = `DELETE FROM library.documents WHERE id = $1 AND status = 'deleted'`
+	tag, err := r.q.Exec(ctx, q, id)
+	if err != nil {
+		return fmt.Errorf("library: hard-delete: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.ErrDocumentNotFound
+	}
+	return nil
+}

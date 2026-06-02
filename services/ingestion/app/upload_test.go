@@ -151,6 +151,10 @@ func (f *fakeLibraryRepo) ListByOwner(context.Context, string, int, *libdomain.C
 func (f *fakeLibraryRepo) FindArtifacts(context.Context, uuid.UUID) ([]*libdomain.Artifact, error) {
 	return nil, nil
 }
+func (f *fakeLibraryRepo) SoftDelete(_ context.Context, _ string, _ uuid.UUID) (string, []string, error) {
+	return "", nil, nil
+}
+func (f *fakeLibraryRepo) HardDelete(_ context.Context, _ uuid.UUID) error { return nil }
 
 type fakeStore struct {
 	headInfo  storage.ObjectInfo
