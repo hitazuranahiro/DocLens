@@ -43,6 +43,11 @@ type Config struct {
 	// Observability
 	SentryDSN string
 	Release   string
+
+	// OTel collector endpoint. Empty disables tracing.
+	OTelEndpoint   string
+	OTelInsecure   bool
+	OTelSampleRate float64
 }
 
 // Load returns the validated config.
@@ -74,6 +79,10 @@ func Load() (Config, error) {
 
 		SentryDSN: os.Getenv("SENTRY_DSN"),
 		Release:   getOr("APP_RELEASE", ""),
+
+		OTelEndpoint:   os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
+		OTelInsecure:   strings.EqualFold(getOr("OTEL_EXPORTER_OTLP_INSECURE", "true"), "true"),
+		OTelSampleRate: parseFloatOr("OTEL_TRACES_SAMPLER_ARG", 0.1),
 	}
 	if cfg.Concurrency < 1 {
 		return Config{}, errors.New("WORKER_CONCURRENCY must be >= 1")
@@ -128,4 +137,17 @@ func parseCSV(raw string) []string {
 		}
 	}
 	return out
+}
+
+
+func parseFloatOr(key string, fallback float64) float64 {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback
+	}
+	f, err := strconv.ParseFloat(v, 64)
+	if err != nil {
+		return fallback
+	}
+	return f
 }

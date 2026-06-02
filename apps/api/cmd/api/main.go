@@ -31,6 +31,7 @@ import (
 	"github.com/tomeku/doclens/services/shared/auth/clerk"
 	"github.com/tomeku/doclens/services/shared/auth/local"
 	"github.com/tomeku/doclens/services/shared/jobs"
+	"github.com/tomeku/doclens/services/shared/observability/otel"
 	"github.com/tomeku/doclens/services/shared/observability/sentry"
 	jobsasynq "github.com/tomeku/doclens/services/shared/jobs/asynq"
 	jobsinmem "github.com/tomeku/doclens/services/shared/jobs/inmem"
@@ -62,6 +63,26 @@ func main() {
 		Logger:      logger,
 	})
 	defer sentryShutdown(2 * time.Second)
+
+	// OTel: env-gated. No-op when OTEL_EXPORTER_OTLP_ENDPOINT is empty.
+	otelShutdown, err := otel.Init(rootCtx, otel.Config{
+		Endpoint:    cfg.OTelEndpoint,
+		Insecure:    cfg.OTelInsecure,
+		ServiceName: "doclens-api",
+		Environment: cfg.Env,
+		Release:     cfg.Release,
+		SampleRate:  cfg.OTelSampleRate,
+		Logger:      logger,
+	})
+	if err != nil {
+		logger.Error("otel init failed", "err", err)
+		os.Exit(1)
+	}
+	defer func() {
+		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = otelShutdown(shutCtx, 5*time.Second)
+	}()
 
 	deps, cleanup, err := buildDeps(rootCtx, cfg, logger)
 	if err != nil {
