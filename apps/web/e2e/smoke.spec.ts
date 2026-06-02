@@ -16,15 +16,20 @@
 import { test, expect } from "@playwright/test";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const API = process.env.PLAYWRIGHT_API_URL ?? "http://localhost:8080";
 const TOKEN = `dev:e2e-user-${Date.now()}:e2e@doclens.test`;
 const AUTH = { Authorization: `Bearer ${TOKEN}` };
 
+// Resolve the fixture path independently of CommonJS / ESM. Playwright
+// runs this file as ESM under modern Node, so `__dirname` is undefined.
+const HERE = dirname(fileURLToPath(import.meta.url));
+
 // Fixture: a tiny one-page PDF the worker can process. Pre-committed
 // under e2e/fixtures so the test is self-contained.
-const FIXTURE_PATH = join(__dirname, "fixtures", "hello.pdf");
+const FIXTURE_PATH = join(HERE, "fixtures", "hello.pdf");
 
 test.describe("v0.1 smoke", () => {
   test("upload → extract → search → delete", async ({ request }) => {
