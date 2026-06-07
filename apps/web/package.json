@@ -14,7 +14,7 @@
     "test:e2e:install": "playwright install --with-deps chromium"
   },
   "dependencies": {
-    "@clerk/nextjs": "6.39.5",
+    "@clerk/nextjs": "7.4.3",
     "@clerk/themes": "^2.4.62",
     "@doclens/api-client": "workspace:*",
     "@opentelemetry/api": "^1.9.1",
