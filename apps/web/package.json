@@ -21,7 +21,7 @@
     "@sentry/nextjs": "^10.55.0",
     "@vercel/otel": "^2.1.2",
     "dompurify": "^3.4.7",
-    "next": "15.5.18",
+    "next": "16.2.7",
     "react": "19.0.3",
     "react-dom": "19.0.3",
     "react-dropzone": "^14.3.5",
