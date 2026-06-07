@@ -18,7 +18,7 @@
     "@clerk/themes": "^2.4.62",
     "@doclens/api-client": "workspace:*",
     "@opentelemetry/api": "^1.9.1",
-    "@sentry/nextjs": "^10.55.0",
+    "@sentry/nextjs": "^10.56.0",
     "@vercel/otel": "^2.1.2",
     "dompurify": "^3.4.7",
     "next": "15.5.18",
