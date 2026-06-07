@@ -22,7 +22,7 @@
     "@vercel/otel": "^2.1.2",
     "dompurify": "^3.4.7",
     "next": "15.5.18",
-    "react": "19.0.3",
+    "react": "19.2.7",
     "react-dom": "19.0.3",
     "react-dropzone": "^14.3.5",
     "react-pdf": "^9.2.1"
@@ -35,7 +35,7 @@
     "@testing-library/react": "^16.1.0",
     "@types/dompurify": "^3.2.0",
     "@types/node": "^20.14.0",
-    "@types/react": "^19.0.0",
+    "@types/react": "^19.2.17",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
