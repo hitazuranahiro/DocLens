@@ -24,7 +24,7 @@
     "next": "15.5.18",
     "react": "19.0.3",
     "react-dom": "19.0.3",
-    "react-dropzone": "^14.3.5",
+    "react-dropzone": "^15.0.0",
     "react-pdf": "^9.2.1"
   },
   "devDependencies": {
