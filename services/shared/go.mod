@@ -1,6 +1,6 @@
 module github.com/tomeku/doclens/services/shared
 
-go 1.23
+go 1.25.0
 
 require (
 	github.com/MicahParks/keyfunc/v3 v3.8.0
@@ -19,7 +19,7 @@ require (
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.44.0
 	go.opentelemetry.io/otel/sdk v1.44.0
 	go.opentelemetry.io/otel/trace v1.44.0
-	google.golang.org/grpc v1.81.1
+	google.golang.org/grpc v1.82.0
 )
 
 require (
