@@ -1,14 +1,14 @@
 module github.com/tomeku/doclens/services/shared
 
-go 1.23
+go 1.25.0
 
 require (
 	github.com/MicahParks/keyfunc/v3 v3.8.0
-	github.com/aws/aws-sdk-go-v2 v1.41.9
+	github.com/aws/aws-sdk-go-v2 v1.43.2
 	github.com/aws/aws-sdk-go-v2/config v1.32.20
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.19
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.102.2
-	github.com/aws/smithy-go v1.26.0
+	github.com/aws/smithy-go v1.27.5
 	github.com/getsentry/sentry-go v0.46.2
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/uuid v1.6.0
